@@ -1,0 +1,17 @@
+{
+  "name": "traceryhosting",
+  "version": "1.0.0",
+  "description": "A site that hosts Tracery-based Twitterbots",
+  "main": "run_bots.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "v21",
+  "license": "ISC",
+  "dependencies": {
+    "mysql": "^2.6.2",
+    "twit": "^1.1.20",
+    "tracery-grammar": "https://github.com/v21/tracery.git",
+    "underscore": "^1.8.3"
+  }
+}
