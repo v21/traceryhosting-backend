@@ -1,2 +1,3 @@
+run_bots.log
 node_modules/*
 .env

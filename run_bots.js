@@ -14,9 +14,64 @@ var connection = mysql.createConnection({
     host     : 'localhost',
     user     : 'tracery_node',
     password : process.env.TRACERY_NODE_DB_PASSWORD,
-    database : 'traceryhosting'
+    database : 'traceryhosting',
+    charset : "utf8mb4"
 });
  
+
+ var recurse_retry = function(tries_remaining, processedGrammar, T, result)
+{
+	if (tries_remaining <= 0)
+	{
+		return;
+	}
+	else
+	{
+		try
+		{
+			var tweet = processedGrammar.flatten("#origin#");
+		
+			console.log("trying to tweet " + tweet);
+			T.post('statuses/update', { status: tweet }, function(err, data, response) {
+				if (err)
+				{
+				  	if (err["code"] == 186)
+				  	{
+				  		console.log("Tweet (\"" + tweet + "\") over 140 characters - retrying " + (tries_remaining - 1) + " more times.");
+				  		recurse_retry(tries_remaining - 1, processedGrammar, T, result);
+				  	}
+				  	else if (err['code'] == 187)
+			  		{
+			  			console.log("Tweet (\"" + tweet + "\") a duplicate - retrying " + (tries_remaining - 1) + " more times.");
+			  			recurse_retry(tries_remaining - 1, processedGrammar, T, result);
+			  		}
+
+				  	else if (err['code'] == 89)  
+			  		{
+			  			console.log("Account " + result["screen_name"] + " permissions are invalid");
+			  		}
+			  		else
+			  		{
+			  			console.error("twitter returned error " + err['code'] + "for " + result["screen_name"]);  
+			  			
+			  		}
+				  	
+				 
+				}
+
+			});
+		}
+		catch (e)
+		{
+			console.error("error generating tweet for " + result["screen_name"] + " (retrying) \ntracery: " + result["tracery"] + "\n\n~~~\nerror: " + e.stack);
+			recurse_retry(tries_remaining - 1, processedGrammar, T, result);
+		}
+		
+	}
+	
+};
+
+
 connection.connect(function(err) {
   if (err) {
     console.error('error connecting: ' + err.stack);
@@ -29,13 +84,17 @@ connection.connect(function(err) {
 	// error will be an Error if one occurred during the query 
 	// results will contain the results of the query 
 	// fields will contain information about the returned results fields (if any) 
+	if (error)
+	{
+		console.error("db connection error: " + e.stack);
+	}
 		_.each(results, function(result, index, list)
 		{
 			try
 			{
+				console.log("tracery: " + result["tracery"] + "\n\n");
 				var processedGrammar = tracery.createGrammar(JSON.parse(result["tracery"]));
-				var tweet = processedGrammar.flatten("#origin#");
-
+				
 				var T = new Twit(
 				{
 				    consumer_key:         process.env.TWITTER_CONSUMER_KEY
@@ -45,14 +104,11 @@ connection.connect(function(err) {
 				}
 				);
 
-
-				T.post('statuses/update', { status: tweet }, function(err, data, response) {
-				  //console.log(data)
-				})
+		  		recurse_retry(5, processedGrammar, T, result);
 			}
 			catch (e)
 			{
-				console.error(e);
+				console.error("error generating tweet for " + result["screen_name"] + "\ntracery: " + result["tracery"] + "\n\n~~~\nerror: " + e.stack);
 			}
 			
 
