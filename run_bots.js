@@ -7,6 +7,10 @@ var _ = require('underscore');
 
 var Twit = require('twit');
 
+var svg2png = require('svg2png');
+var async = require('async');
+var fs = require('fs');
+
 
 var mysql      = require('mysql');
 var connection = mysql.createConnection({
@@ -17,7 +21,108 @@ var connection = mysql.createConnection({
     database : 'traceryhosting',
     charset : "utf8mb4"
 });
- 
+
+var generate_svg = function(svg_text, T, cb)
+{
+	var filename = _.uniqueId("temp_");
+	console.log(svg_text);
+	fs.writeFile(filename + ".svg", svg_text, function(err, written, buffer){
+		if (err)
+		{
+			cb(err);
+		}
+		else
+		{
+			svg2png(filename + ".svg", filename + ".png", function (err) {
+				if (err)
+				{
+					cb(err);
+				    fs.unlinkSync(filename + ".svg");
+				}
+				else
+				{
+					var b64content = fs.readFile(filename + ".png", { encoding: 'base64' }, function(err, data){
+						if (err)
+						{
+							cb(err);
+						}
+						else
+						{
+							uploadMedia(data, T, cb);
+						}
+
+					    fs.unlinkSync(filename + ".png");
+
+					});
+
+				    fs.unlinkSync(filename + ".svg");
+				}
+			});
+		}
+		
+	});
+}
+
+var fetch_img = function(url, T, cb)
+{
+	//todo all this
+}
+
+var uploadMedia = function(b64data, T, cb)
+{
+
+	T.post('media/upload', { media_data: b64data }, function (err, data, response) {
+		if (err)
+		{
+			cb(err);
+		}
+		else
+		{
+			cb(null, data.media_id_string);
+		}
+	});
+}
+
+// this is much more complex than i thought it would be
+// but this function will find our image tags 
+// full credit to BooDooPerson - https://twitter.com/BooDooPerson/status/683450163608817664
+// Reverse the string, check with our fucked up regex, return null or reverse matches back
+var matchBrackets = function(text) {
+  
+  // simple utility function
+  function reverseString(s) {
+    return s.split('').reverse().join('');
+  }
+
+  // this is an inverstion of the natural order for this RegEx:
+  var bracketsRe = /(\}(?!\\)(.+?)\{(?!\\))/g;
+
+  text = reverseString(text);
+  var matches = text.match(bracketsRe);
+  if(matches === null) {
+    return null;
+  }
+  else {
+    return matches.map(reverseString).reverse();
+  }
+}
+
+
+//see matchBrackets for why this is like this
+function removeBrackets (text) {
+  
+  // simple utility function
+  var reverseString = function(s) {
+    return s.split('').reverse().join('');
+  }
+
+  // this is an inverstion of the natural order for this RegEx:
+  var bracketsRe = /(\}(?!\\)(.+?)\{(?!\\))/g;
+
+  text = reverseString(text);
+  return reverseString(text.replace(bracketsRe, ""));
+}
+
 
  var recurse_retry = function(tries_remaining, processedGrammar, T, result)
 {
@@ -30,40 +135,127 @@ var connection = mysql.createConnection({
 		try
 		{
 			var tweet = processedGrammar.flatten("#origin#");
-		
-			console.log("trying to tweet " + tweet);
-			T.post('statuses/update', { status: tweet }, function(err, data, response) {
-				if (err)
+			var tweet_without_image = removeBrackets(tweet);
+			var media_tags = matchBrackets(tweet);
+			if (media_tags)
+			{
+				async.parallel(media_tags.map(function(match){
+					if (match.indexOf("svg ") === 1)
+					{
+						return _.partial(generate_svg, match.substr(5,match.length - 6), T);
+					}
+					else if (match.indexOf("img ") === 1)
+					{
+						return _.partial(fetch_img, match.substr(5), T);
+					}
+					else
+					{
+						return function(cb){
+							cb("error {" + match.substr(1,4) + "... not recognized");
+						}
+					}
+				}),
+				function(err, results)
 				{
-				  	if (err["code"] == 186)
-				  	{
-				  		console.log("Tweet (\"" + tweet + "\") over 140 characters - retrying " + (tries_remaining - 1) + " more times.");
-				  		recurse_retry(tries_remaining - 1, processedGrammar, T, result);
-				  	}
-				  	else if (err['code'] == 187)
-			  		{
-			  			console.log("Tweet (\"" + tweet + "\") a duplicate - retrying " + (tries_remaining - 1) + " more times.");
-			  			recurse_retry(tries_remaining - 1, processedGrammar, T, result);
-			  		}
+					if (err)
+					{
+						console.error(err);
+						recurse_retry(tries_remaining - 1, processedGrammar, T, result);
+						return;
+					}
 
-				  	else if (err['code'] == 89)  
-			  		{
-			  			console.log("Account " + result["screen_name"] + " permissions are invalid");
-			  		}
-			  		else
-			  		{
-			  			console.error("twitter returned error " + err['code'] + "for " + result["screen_name"]);  
-			  			
-			  		}
-				  	
-				 
-				}
+		  			var params = { status: tweet_without_image, media_ids: results };
+					T.post('statuses/update', params, function(err, data, response) {
+						if (err)
+						{
+						  	if (err["code"] == 186)
+						  	{
+						  		//console.log("Tweet (\"" + tweet + "\") over 140 characters - retrying " + (tries_remaining - 1) + " more times.");
+						  		recurse_retry(tries_remaining - 1, processedGrammar, T, result);
+						  	}
+						  	else if (err['code'] == 187)
+					  		{
+					  			//console.log("Tweet (\"" + tweet + "\") a duplicate - retrying " + (tries_remaining - 1) + " more times.");
+					  			recurse_retry(tries_remaining - 1, processedGrammar, T, result);
+					  		}
 
-			});
+						  	else if (err['code'] == 89)  
+					  		{
+					  			console.log("Account " + result["screen_name"] + " permissions are invalid");
+					  		}
+					  		else if (err['code'] == 226)  
+					  		{
+					  			console.log("Account " + result["screen_name"] + " has been flagged as a bot");
+					  		}
+					  		else if (err['statusCode'] == 404)
+					  		{
+					  			//unknown error
+					  		}
+					  		else
+					  		{
+					  			console.error("twitter returned error " + err['code'] + "for " + result["screen_name"] + " " + JSON.stringify(err, null, 2));  
+					  			console.log("twitter returned error " + err['code'] + "for " + result["screen_name"]);  
+					  			
+					  		}
+						  	
+						 
+						}
+
+					});
+				});
+
+			}
+			else
+			{
+				//console.log("trying to tweet " + tweet + "for " + result["screen_name"]);
+				T.post('statuses/update', { status: tweet }, function(err, data, response) {
+					if (err)
+					{
+					  	if (err["code"] == 186)
+					  	{
+					  		//console.log("Tweet (\"" + tweet + "\") over 140 characters - retrying " + (tries_remaining - 1) + " more times.");
+					  		recurse_retry(tries_remaining - 1, processedGrammar, T, result);
+					  	}
+					  	else if (err['code'] == 187)
+				  		{
+				  			//console.log("Tweet (\"" + tweet + "\") a duplicate - retrying " + (tries_remaining - 1) + " more times.");
+				  			recurse_retry(tries_remaining - 1, processedGrammar, T, result);
+				  		}
+
+					  	else if (err['code'] == 89)  
+				  		{
+				  			console.log("Account " + result["screen_name"] + " permissions are invalid");
+				  		}
+				  		else if (err['code'] == 226)  
+				  		{
+				  			console.log("Account " + result["screen_name"] + " has been flagged as a bot");
+				  		}
+				  		else if (err['statusCode'] == 404)
+				  		{
+				  			//unknown error
+				  			
+				  		}
+				  		else
+				  		{
+				  			console.error("twitter returned error " + err['code'] + "for " + result["screen_name"] + " " + JSON.stringify(err, null, 2));  
+				  			console.log("twitter returned error " + err['code'] + "for " + result["screen_name"]);  
+				  			
+				  		}
+					  	
+					 
+					}
+
+				});
+			}
+		
+			
 		}
 		catch (e)
 		{
-			console.error("error generating tweet for " + result["screen_name"] + " (retrying) \ntracery: " + result["tracery"] + "\n\n~~~\nerror: " + e.stack);
+			if (tries_remaining <= 4)
+			{
+				console.error("error generating tweet for " + result["screen_name"] + " (retrying)\nerror: " + e.stack);
+			}
 			recurse_retry(tries_remaining - 1, processedGrammar, T, result);
 		}
 		
@@ -78,7 +270,7 @@ connection.connect(function(err) {
     return;
   }
  
-  console.log('connected as id ' + connection.threadId);
+  //console.log('connected as id ' + connection.threadId);
 
 	connection.query('SELECT * FROM `traceries` WHERE `frequency` = ?', [frequency], function (error, results, fields) {
 	// error will be an Error if one occurred during the query 
@@ -86,14 +278,17 @@ connection.connect(function(err) {
 	// fields will contain information about the returned results fields (if any) 
 	if (error)
 	{
-		console.error("db connection error: " + e.stack);
+		console.error("db connection error: " + error.stack);
 	}
 		_.each(results, function(result, index, list)
-		{
+		{ 
+
 			try
 			{
-				console.log("tracery: " + result["tracery"] + "\n\n");
+				//console.log("tracery: " + result["tracery"] + "\n\n");
 				var processedGrammar = tracery.createGrammar(JSON.parse(result["tracery"]));
+
+				processedGrammar.addModifiers(tracery.baseEngModifiers);
 				
 				var T = new Twit(
 				{
@@ -111,7 +306,6 @@ connection.connect(function(err) {
 				console.error("error generating tweet for " + result["screen_name"] + "\ntracery: " + result["tracery"] + "\n\n~~~\nerror: " + e.stack);
 			}
 			
-
 		});
 
 
