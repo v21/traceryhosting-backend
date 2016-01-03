@@ -25,7 +25,7 @@ var connection = mysql.createConnection({
 var generate_svg = function(svg_text, T, cb)
 {
 	var filename = _.uniqueId("temp_");
-	console.log(svg_text);
+	//console.log(svg_text);
 	fs.writeFile(filename + ".svg", svg_text, function(err, written, buffer){
 		if (err)
 		{
