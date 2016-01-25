@@ -36,8 +36,9 @@ var generate_svg = function(svg_text, T, cb)
 			svg2png(filename + ".svg", filename + ".png", function (err) {
 				if (err)
 				{
+					console.error("svg generation error");
 					cb(err);
-				    fs.unlinkSync(filename + ".svg");
+				    //fs.unlinkSync(filename + ".svg");
 				}
 				else
 				{
@@ -51,11 +52,11 @@ var generate_svg = function(svg_text, T, cb)
 							uploadMedia(data, T, cb);
 						}
 
-					    fs.unlinkSync(filename + ".png");
+					    //fs.unlinkSync(filename + ".png");
 
 					});
 
-				    fs.unlinkSync(filename + ".svg");
+				    //fs.unlinkSync(filename + ".svg");
 				}
 			});
 		}
@@ -159,6 +160,7 @@ function removeBrackets (text) {
 				{
 					if (err)
 					{
+						console.error("error generating SVG for " + result["screen_name"]);
 						console.error(err);
 						recurse_retry(tries_remaining - 1, processedGrammar, T, result);
 						return;
@@ -282,29 +284,31 @@ connection.connect(function(err) {
 	}
 		_.each(results, function(result, index, list)
 		{ 
-
-			try
-			{
-				//console.log("tracery: " + result["tracery"] + "\n\n");
-				var processedGrammar = tracery.createGrammar(JSON.parse(result["tracery"]));
-
-				processedGrammar.addModifiers(tracery.baseEngModifiers);
-				
-				var T = new Twit(
+			setTimeout(function () {
+				try
 				{
-				    consumer_key:         process.env.TWITTER_CONSUMER_KEY
-				  , consumer_secret:      process.env.TWITTER_CONSUMER_SECRET
-				  , access_token:         result['token']
-				  , access_token_secret:  result['token_secret']
-				}
-				);
+					//console.log("tracery: " + result["tracery"] + "\n\n");
+					var processedGrammar = tracery.createGrammar(JSON.parse(result["tracery"]));
 
-		  		recurse_retry(5, processedGrammar, T, result);
-			}
-			catch (e)
-			{
-				console.error("error generating tweet for " + result["screen_name"] + "\ntracery: " + result["tracery"] + "\n\n~~~\nerror: " + e.stack);
-			}
+					
+					var T = new Twit(
+					{
+					    consumer_key:         process.env.TWITTER_CONSUMER_KEY
+					  , consumer_secret:      process.env.TWITTER_CONSUMER_SECRET
+					  , access_token:         result['token']
+					  , access_token_secret:  result['token_secret']
+					}
+					);
+
+			  		recurse_retry(5, processedGrammar, T, result);
+				}
+				catch (e)
+				{
+					console.error("error generating tweet for " + result["screen_name"] + "\ntracery: " + result["tracery"] + "\n\n~~~\nerror: " + e.stack);
+				}
+		    }, 1000 * 2 * index); //one bot per 2 secs, to stop clustering 
+
+			
 			
 		});
 
