@@ -11,6 +11,14 @@ var svg2png = require('svg2png');
 var async = require('async');
 var fs = require('fs');
 
+_.mixin({
+	guid : function(){
+	  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+	    var r = Math.random()*16|0, v = c == 'x' ? r : (r&0x3|0x8);
+	    return v.toString(16);
+	  });
+	}
+});
 
 var mysql      = require('mysql');
 var connection = mysql.createConnection({
@@ -24,7 +32,7 @@ var connection = mysql.createConnection({
 
 var generate_svg = function(svg_text, T, cb)
 {
-	var filename = _.uniqueId("temp_");
+	var filename = "temp_" + _.guid();
 	//console.log(svg_text);
 	fs.writeFile(filename + ".svg", svg_text, function(err, written, buffer){
 		if (err)
@@ -38,7 +46,7 @@ var generate_svg = function(svg_text, T, cb)
 				{
 					console.error("svg generation error");
 					cb(err);
-				    //fs.unlinkSync(filename + ".svg");
+				    fs.unlinkSync(filename + ".svg");
 				}
 				else
 				{
@@ -52,11 +60,11 @@ var generate_svg = function(svg_text, T, cb)
 							uploadMedia(data, T, cb);
 						}
 
-					    //fs.unlinkSync(filename + ".png");
+					    fs.unlinkSync(filename + ".png");
 
 					});
 
-				    //fs.unlinkSync(filename + ".svg");
+				    fs.unlinkSync(filename + ".svg");
 				}
 			});
 		}
@@ -136,6 +144,7 @@ function removeBrackets (text) {
 		try
 		{
 			var tweet = processedGrammar.flatten("#origin#");
+
 			var tweet_without_image = removeBrackets(tweet);
 			var media_tags = matchBrackets(tweet);
 			if (media_tags)
@@ -290,6 +299,7 @@ connection.connect(function(err) {
 					//console.log("tracery: " + result["tracery"] + "\n\n");
 					var processedGrammar = tracery.createGrammar(JSON.parse(result["tracery"]));
 
+					processedGrammar.addModifiers(tracery.baseEngModifiers); 
 					
 					var T = new Twit(
 					{
