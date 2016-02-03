@@ -11,9 +11,10 @@
   "dependencies": {
     "mysql": "^2.6.2",
     "twit": "^1.1.20",
-    "tracery-grammar": "https://github.com/v21/tracery.git",
+    "tracery-grammar": "2.7.2",
     "underscore": "^1.8.3",
-    "svg2png" : "2.0.0",
-    "async" : "^1.5.1"
+    "svg2png" : "v21/svg2png",
+    "async" : "^1.5.1",
+    "pn" : "^1.0.0"
   }
 }

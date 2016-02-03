@@ -32,44 +32,11 @@ var connection = mysql.createConnection({
 
 var generate_svg = function(svg_text, T, cb)
 {
-	var filename = "temp_" + _.guid();
-	//console.log(svg_text);
-	fs.writeFile(filename + ".svg", svg_text, function(err, written, buffer){
-		if (err)
-		{
-			cb(err);
-		}
-		else
-		{
-			svg2png(filename + ".svg", filename + ".png", function (err) {
-				if (err)
-				{
-					console.error("svg generation error");
-					cb(err);
-				    fs.unlinkSync(filename + ".svg");
-				}
-				else
-				{
-					var b64content = fs.readFile(filename + ".png", { encoding: 'base64' }, function(err, data){
-						if (err)
-						{
-							cb(err);
-						}
-						else
-						{
-							uploadMedia(data, T, cb);
-						}
+	
+		svg2png(new Buffer(svg_text))
+		.then(data => uploadMedia(data.toString('base64'), T, cb))
+		.catch(e => cb(e));
 
-					    fs.unlinkSync(filename + ".png");
-
-					});
-
-				    fs.unlinkSync(filename + ".svg");
-				}
-			});
-		}
-		
-	});
 }
 
 var fetch_img = function(url, T, cb)
@@ -79,7 +46,6 @@ var fetch_img = function(url, T, cb)
 
 var uploadMedia = function(b64data, T, cb)
 {
-
 	T.post('media/upload', { media_data: b64data }, function (err, data, response) {
 		if (err)
 		{
@@ -144,7 +110,7 @@ function removeBrackets (text) {
 		try
 		{
 			var tweet = processedGrammar.flatten("#origin#");
-
+			//console.log(tweet);
 			var tweet_without_image = removeBrackets(tweet);
 			var media_tags = matchBrackets(tweet);
 			if (media_tags)
