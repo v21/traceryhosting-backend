@@ -259,6 +259,11 @@ connection.connect(function(err) {
 	}
 		_.each(results, function(result, index, list)
 		{ 
+			if (result["blocked_status"] != 0)
+			{
+				return;
+			}
+
 			setTimeout(function () {
 				try
 				{
