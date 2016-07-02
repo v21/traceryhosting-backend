@@ -259,8 +259,9 @@ connection.connect(function(err) {
 	}
 		_.each(results, function(result, index, list)
 		{ 
-			if (result["blocked_status"] != 0)
+			if (result["blocked_status"] != 0 && result["blocked_status"] != null)
 			{
+				console.log(result["screen_name"] + " blocked");
 				return;
 			}
 
