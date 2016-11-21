@@ -1,6 +1,11 @@
 
 
+var arg0 = process.argv[2];
+var replies = (arg0 === "replies");
 var frequency = parseInt(process.argv[2], 10);
+//obv only one of these will be true
+
+
 
 var tracery = require('tracery-grammar');
 var _ = require('underscore');
@@ -99,8 +104,14 @@ function removeBrackets (text) {
 }
 
 
- var recurse_retry = function(tries_remaining, processedGrammar, T, result)
+var recurse_retry = function(origin, tries_remaining, processedGrammar, T, result, in_reply_to)
 {
+
+	if (frequency == 1440)
+	{
+		console.log(result["screen_name"] + " tries:" + tries_remaining);
+	}
+
 	if (tries_remaining <= 0)
 	{
 		return;
@@ -109,7 +120,7 @@ function removeBrackets (text) {
 	{
 		try
 		{
-			var tweet = processedGrammar.flatten("#origin#");
+			var tweet = processedGrammar.flatten(origin);
 			//console.log(tweet);
 			var tweet_without_image = removeBrackets(tweet);
 			var media_tags = matchBrackets(tweet);
@@ -137,23 +148,31 @@ function removeBrackets (text) {
 					{
 						console.error("error generating SVG for " + result["screen_name"]);
 						console.error(err);
-						recurse_retry(tries_remaining - 1, processedGrammar, T, result);
+						recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 						return;
 					}
-
-		  			var params = { status: tweet_without_image, media_ids: results };
+					var params = {};
+					if (typeof in_reply_to === 'undefined')
+					{
+		  				params = { status: tweet_without_image, media_ids: results };
+					}
+					else
+					{
+						var screen_name = in_reply_to["user"]["screen_name"];
+						params = {status: "@" + screen_name + " " + tweet_without_image, media_ids: results, in_reply_to_status_id:in_reply_to["id_str"]}
+					}
 					T.post('statuses/update', params, function(err, data, response) {
 						if (err)
 						{
 						  	if (err["code"] == 186)
 						  	{
 						  		//console.log("Tweet (\"" + tweet + "\") over 140 characters - retrying " + (tries_remaining - 1) + " more times.");
-						  		recurse_retry(tries_remaining - 1, processedGrammar, T, result);
+						  		recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 						  	}
 						  	else if (err['code'] == 187)
 					  		{
 					  			//console.log("Tweet (\"" + tweet + "\") a duplicate - retrying " + (tries_remaining - 1) + " more times.");
-					  			recurse_retry(tries_remaining - 1, processedGrammar, T, result);
+					  			recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 					  		}
 
 						  	else if (err['code'] == 89)  
@@ -184,19 +203,30 @@ function removeBrackets (text) {
 			}
 			else
 			{
+
+	  			var params = {};
+				if (typeof in_reply_to === 'undefined')
+				{
+	  				params = { status: tweet};
+				}
+				else
+				{
+					var screen_name = in_reply_to["user"]["screen_name"];
+					params = {status: "@" + screen_name + " " + tweet, in_reply_to_status_id:in_reply_to["id_str"]}
+				}
 				//console.log("trying to tweet " + tweet + "for " + result["screen_name"]);
-				T.post('statuses/update', { status: tweet }, function(err, data, response) {
+				T.post('statuses/update', params, function(err, data, response) {
 					if (err)
 					{
 					  	if (err["code"] == 186)
 					  	{
 					  		//console.log("Tweet (\"" + tweet + "\") over 140 characters - retrying " + (tries_remaining - 1) + " more times.");
-					  		recurse_retry(tries_remaining - 1, processedGrammar, T, result);
+					  		recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 					  	}
 					  	else if (err['code'] == 187)
 				  		{
 				  			//console.log("Tweet (\"" + tweet + "\") a duplicate - retrying " + (tries_remaining - 1) + " more times.");
-				  			recurse_retry(tries_remaining - 1, processedGrammar, T, result);
+				  			recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				  		}
 
 					  	else if (err['code'] == 89)  
@@ -233,7 +263,7 @@ function removeBrackets (text) {
 			{
 				console.error("error generating tweet for " + result["screen_name"] + " (retrying)\nerror: " + e.stack);
 			}
-			recurse_retry(tries_remaining - 1, processedGrammar, T, result);
+			recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 		}
 		
 	}
@@ -247,32 +277,98 @@ connection.connect(function(err) {
     return;
   }
  
-  //console.log('connected as id ' + connection.threadId);
 
-	connection.query('SELECT * FROM `traceries` WHERE `frequency` = ?', [frequency], function (error, results, fields) {
-	// error will be an Error if one occurred during the query 
-	// results will contain the results of the query 
-	// fields will contain information about the returned results fields (if any) 
-	if (error)
-	{
-		console.error("db connection error: " + error.stack);
+
+
+  	if (!replies && !isNaN(frequency))
+  	{
+
+		connection.query('SELECT * FROM `traceries` WHERE `frequency` = ?', [frequency], function (error, results, fields) {
+		// error will be an Error if one occurred during the query 
+		// results will contain the results of the query 
+		// fields will contain information about the returned results fields (if any) 
+		if (error)
+		{
+			console.error("db connection error: " + error.stack);
+		}
+			_.each(results, function(result, index, list)
+			{ 
+				if (frequency == 1440)
+				{
+					console.log("tweeting " + result["screen_name"]);
+				}
+
+				if (result["blocked_status"] != 0 && result["blocked_status"] != null)
+				{
+					console.log(result["screen_name"] + " blocked");
+					return;
+				}
+
+				setTimeout(function () {
+					try
+					{
+						//console.log("tweeting for: " + result["screen_name"]);
+						var processedGrammar = tracery.createGrammar(JSON.parse(result["tracery"]));
+						if (frequency == 1440)
+						{
+							console.log(result["screen_name"] + " processedGrammar");
+						}
+						processedGrammar.addModifiers(tracery.baseEngModifiers); 
+						
+						var T = new Twit(
+						{
+						    consumer_key:         process.env.TWITTER_CONSUMER_KEY
+						  , consumer_secret:      process.env.TWITTER_CONSUMER_SECRET
+						  , access_token:         result['token']
+						  , access_token_secret:  result['token_secret']
+						}
+						);
+
+				  		recurse_retry("#origin#", 5, processedGrammar, T, result);
+					}
+					catch (e)
+					{
+						console.error("error generating tweet for " + result["screen_name"] + "\ntracery: " + result["tracery"] + "\n\n~~~\nerror: " + e.stack);
+					}
+			    }, 1000 * 2 * index); //one bot per 2 secs, to stop clustering 
+
+				
+				
+			});
+
+
+		});
+
+
+		connection.end(function(err) {
+		  // The connection is terminated now 
+		});
 	}
-		_.each(results, function(result, index, list)
-		{ 
-			if (result["blocked_status"] != 0 && result["blocked_status"] != null)
-			{
-				console.log(result["screen_name"] + " blocked");
-				return;
-			}
+	else if (replies)
+	{
+		connection.query('SELECT * FROM `traceries` WHERE `does_replies` = 1', [], function (error, results, fields) {
+		// error will be an Error if one occurred during the query 
+		// results will contain the results of the query 
+		// fields will contain information about the returned results fields (if any) 
+		if (error)
+		{
+			console.error("doing replies, db connection error: " + error.stack);
+		}
+			_.each(results, function(result, index, list)
+			{ 
+				if (result["blocked_status"] != 0 && result["blocked_status"] != null)
+				{
+					console.log(result["screen_name"] + " blocked");
+					return;
+				}
 
-			setTimeout(function () {
+				if (Math.random < 0.05)
+				{
+					return;
+				}
+
 				try
 				{
-					//console.log("tracery: " + result["tracery"] + "\n\n");
-					var processedGrammar = tracery.createGrammar(JSON.parse(result["tracery"]));
-
-					processedGrammar.addModifiers(tracery.baseEngModifiers); 
-					
 					var T = new Twit(
 					{
 					    consumer_key:         process.env.TWITTER_CONSUMER_KEY
@@ -282,23 +378,114 @@ connection.connect(function(err) {
 					}
 					);
 
-			  		recurse_retry(5, processedGrammar, T, result);
+					var processedGrammar = tracery.createGrammar(JSON.parse(result["tracery"]));
+
+					processedGrammar.addModifiers(tracery.baseEngModifiers); 
+
+					try
+					{
+						try
+						{
+							var reply_rules = JSON.parse(result["reply_rules"]);
+						}
+						catch(e)
+						{
+							console.log("couldn't parse reply_rules for " + result["screen_name"]);
+						}
+						var last_reply = result['last_reply'];
+						var count = 50;
+						if (last_reply == null)
+						{
+							console.log(result["screen_name"] + " last_reply null, setting to 0");
+							last_reply = "1";
+							count = 1;
+						}
+						T.get('statuses/mentions_timeline', {count:count, since_id:last_reply, include_entities: false}, function(err, data, response) {
+							if (err)
+							{
+								console.log("error fetching mentions for " + result["screen_name"] + " err:" + err);
+							}
+							else
+							{
+
+								//todo save last_reply to id in 0
+								if (data.length > 0)
+								{
+
+									var update_conn = mysql.createConnection({
+
+									    host     : 'localhost',
+									    user     : 'tracery_node',
+									    password : process.env.TRACERY_NODE_DB_PASSWORD,
+									    database : 'traceryhosting',
+									    charset : "utf8mb4"
+									});
+									update_conn.query("UPDATE `traceries` SET `last_reply` = ? WHERE `user_id` = ?", [data[0]["id_str"], result["user_id"]],
+										function(err, results, fields)
+										{
+											if (err)
+											{
+												console.log("couldn't set last_reply to " + data[0]["id_str"] + " for " + result["screen_name"] + " " + err);
+											}
+											else
+											{
+												console.log("have set last_reply to " + data[0]["id_str"] + " for " + result["screen_name"]);
+
+												_.each(data, function(mention, index, list)
+												{
+													console.log("tweet to reply to:" + mention["text"]);
+
+													var origin = _.find(reply_rules, function(origin,rule) {return new RegExp(rule).test(mention["text"]);});
+													if (typeof origin != "undefined")
+													{
+														recurse_retry(origin, 5, processedGrammar, T, result, mention);
+													}
+												});
+											}
+											update_conn.end(function(err) {
+											  // The connection is terminated now 
+											});
+
+											
+										})
+								}
+								else
+								{
+									
+								}
+
+								
+							}
+
+
+						});
+
+					}
+					catch(e)
+					{
+						console.log("reply_rules error for " + result["screen_name"] + e);
+					}
+
+					
+					//console.log("tracery: " + result["tracery"] + "\n\n");
+					
+			  		//recurse_retry(get_reply_origin(result[reply_rules]), 5, processedGrammar, T, result);
 				}
 				catch (e)
 				{
 					console.error("error generating tweet for " + result["screen_name"] + "\ntracery: " + result["tracery"] + "\n\n~~~\nerror: " + e.stack);
 				}
-		    }, 1000 * 2 * index); //one bot per 2 secs, to stop clustering 
+		    
+				
+				
+			});
 
-			
-			
+
 		});
-
-
-	});
-
+	}
 	connection.end(function(err) {
 	  // The connection is terminated now 
 	});
 
 });
+
