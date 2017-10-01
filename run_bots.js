@@ -126,7 +126,15 @@ var recurse_retry = function(origin, tries_remaining, processedGrammar, T, resul
 			var media_tags = matchBrackets(tweet);
 			if (media_tags)
 			{
+				
 				async.parallel(media_tags.map(function(match){
+					
+					
+					var unescapeOpenBracket = /\\{/g;
+					var unescapeCloseBracket = /\\}/g;
+					match = match.replace(unescapeOpenBracket, "{");
+					match = match.replace(unescapeCloseBracket, "}");
+
 					if (match.indexOf("svg ") === 1)
 					{
 						return _.partial(generate_svg, match.substr(5,match.length - 6), T);
