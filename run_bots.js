@@ -303,7 +303,7 @@ connection.connect(function(err) {
 					return;
 				}
 
-				setTimeout(function () {
+				//setTimeout(function () {
 					try
 					{
 						//console.log("tweeting for: " + result["screen_name"]);
@@ -325,7 +325,7 @@ connection.connect(function(err) {
 					{
 						console.error("error generating tweet for " + result["screen_name"] + "\ntracery: " + result["tracery"] + "\n\n~~~\nerror: " + e.stack);
 					}
-			    }, 1000 * 2 * index); //one bot per 2 secs, to stop clustering 
+			    //}, 1000 * 2 * index); //one bot per 2 secs, to stop clustering 
 
 				
 				
