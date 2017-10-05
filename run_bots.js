@@ -107,11 +107,6 @@ function removeBrackets (text) {
 var recurse_retry = function(origin, tries_remaining, processedGrammar, T, result, in_reply_to)
 {
 
-	if (frequency == 1440)
-	{
-		console.log(result["screen_name"] + " tries:" + tries_remaining);
-	}
-
 	if (tries_remaining <= 0)
 	{
 		return;
@@ -301,10 +296,6 @@ connection.connect(function(err) {
 		}
 			_.each(results, function(result, index, list)
 			{ 
-				if (frequency == 1440)
-				{
-					console.log("tweeting " + result["screen_name"]);
-				}
 
 				if (result["blocked_status"] != 0 && result["blocked_status"] != null)
 				{
@@ -317,10 +308,6 @@ connection.connect(function(err) {
 					{
 						//console.log("tweeting for: " + result["screen_name"]);
 						var processedGrammar = tracery.createGrammar(JSON.parse(result["tracery"]));
-						if (frequency == 1440)
-						{
-							console.log(result["screen_name"] + " processedGrammar");
-						}
 						processedGrammar.addModifiers(tracery.baseEngModifiers); 
 						
 						var T = new Twit(
