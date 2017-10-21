@@ -357,7 +357,7 @@ connection.connect(function(err) {
 					return;
 				}
 
-				if (Math.random < 0.05)
+				if (Math.random() < 0.05)
 				{
 					return;
 				}
