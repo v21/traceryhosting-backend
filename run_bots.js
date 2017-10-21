@@ -286,7 +286,7 @@ connection.connect(function(err) {
   	if (!replies && !isNaN(frequency))
   	{
 
-		connection.query('SELECT * FROM `traceries` WHERE `frequency` = ?', [frequency], function (error, results, fields) {
+		connection.query('SELECT * FROM `traceries` WHERE `frequency` = ? AND IFNULL(`blocked_status`, 0) = 0', [frequency], function (error, results, fields) {
 		// error will be an Error if one occurred during the query 
 		// results will contain the results of the query 
 		// fields will contain information about the returned results fields (if any) 
@@ -297,9 +297,9 @@ connection.connect(function(err) {
 			_.each(results, function(result, index, list)
 			{ 
 
-				if (result["blocked_status"] != 0 && result["blocked_status"] != null)
+				if (result["blocked_status"] != 0 && result["blocked_status"] != null) //this should be redundant
 				{
-					console.log(result["screen_name"] + " blocked");
+					console.error(result["screen_name"] + " blocked but still coming through");
 					return;
 				}
 
@@ -341,7 +341,7 @@ connection.connect(function(err) {
 	}
 	else if (replies)
 	{
-		connection.query('SELECT * FROM `traceries` WHERE `does_replies` = 1', [], function (error, results, fields) {
+		connection.query('SELECT * FROM `traceries` WHERE `does_replies` = 1 AND IFNULL(`blocked_status`, 0) = 0', [], function (error, results, fields) {
 		// error will be an Error if one occurred during the query 
 		// results will contain the results of the query 
 		// fields will contain information about the returned results fields (if any) 
@@ -351,9 +351,9 @@ connection.connect(function(err) {
 		}
 			_.each(results, function(result, index, list)
 			{ 
-				if (result["blocked_status"] != 0 && result["blocked_status"] != null)
+				if (result["blocked_status"] != 0 && result["blocked_status"] != null)//this should be redundant
 				{
-					console.log(result["screen_name"] + " blocked");
+					console.error(result["screen_name"] + " blocked but still coming through");
 					return;
 				}
 
