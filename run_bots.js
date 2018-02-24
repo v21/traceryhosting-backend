@@ -189,18 +189,28 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 
 				if (err["code"] == 186) // too long
 				{
-					//console.log("Tweet (\"" + tweet + "\") over 140 characters - retrying " + (tries_remaining - 1) + " more times.");
 					recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				}
 				else if (err['code'] == 187) //duplicate tweet
 				{
-					//console.log("Tweet (\"" + tweet + "\") a duplicate - retrying " + (tries_remaining - 1) + " more times.");
 					recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				}
-
+				else if (err['code'] == 170) //empty tweet
+				{
+					recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+				}
+					
+				else if (err['code'] == 64)  
+				{
+					console.log("Account " + result["screen_name"] + " is suspended");
+				}
 				else if (err['code'] == 89)  
 				{
 					console.log("Account " + result["screen_name"] + " permissions are invalid");
+				}
+				else if (err['code'] == 326)  
+				{
+					console.log("Account " + result["screen_name"] + " is temporarily locked for spam");
 				}
 				else if (err['code'] == 226)  
 				{
