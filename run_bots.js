@@ -173,8 +173,20 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 			}
 			catch (err)
 			{
-				console.error("error generating SVG for " + result["screen_name"]);
-				console.error(err);
+				Raven.captureException(err, 
+				{
+					user: 
+					{
+						username: result['screen_name'],
+						id : result['user_id']
+					},
+					extra:
+					{
+						tries_remaining: tries_remaining,
+						mention: in_reply_to,
+						tracery: result['tracery']
+					}
+				});
 				recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				return;
 			}
@@ -244,8 +256,6 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 							data : data
 						}
 					});
-					
-					console.error("twitter returned error " + err['code'] + "for " + result["screen_name"] + " " + JSON.stringify(err, null, 2));
 				}
 			}
 		}
@@ -275,10 +285,20 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 	}
 	catch (e)
 	{
-		if (tries_remaining <= 4)
+		Raven.captureException(e, 
 		{
-			console.error("error generating tweet for " + result["screen_name"] + " (retrying)\nerror: " + e.stack);
-		}
+			user: 
+			{
+				username: result['screen_name'],
+				id : result['user_id']
+			},
+			extra:
+			{
+				tries_remaining: tries_remaining,
+				mention: in_reply_to,
+				tracery: result['tracery']
+			}
+		});
 		recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 	}
 	
@@ -334,15 +354,8 @@ async function reply_for_account(connectionPool, user_id)
 		return;
 	}
 
-	try
-	{
-		var [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, tracery, user_id, last_reply, reply_rules from `traceries` where user_id = ?', [user_id]);
-	}
-	catch (e)
-	{
-		console.error("db connection error: " + e);
-		throw(e);
-	}
+	var [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, tracery, user_id, last_reply, reply_rules from `traceries` where user_id = ?', [user_id]);
+	
 
 	var T = new Twit(
 		{
@@ -360,8 +373,20 @@ async function reply_for_account(connectionPool, user_id)
 	}
 	catch (e)
 	{
-		console.error("error generating tweet for " + tracery_result[0]["screen_name"] + "\ntracery: " + tracery_result[0]["tracery"] + "\n\n~~~\nerror: " + e.stack);
-		throw(e);
+		Raven.captureException(e, 
+		{
+			user: 
+			{
+				username: tracery_result[0]['screen_name'],
+				id : user_id
+			},
+			extra:
+			{
+				tracery: tracery_result[0]['tracery'],
+				reply_rules : tracery_result[0]["reply_rules"],
+				last_reply : tracery_result[0]["last_reply"]
+			}
+		});
 	}
 
 	try
@@ -370,8 +395,20 @@ async function reply_for_account(connectionPool, user_id)
 	}
 	catch(e)
 	{
-		console.log("couldn't parse reply_rules for " + tracery_result[0]["screen_name"]);
-		throw(e);
+		Raven.captureException(e, 
+		{
+			user: 
+			{
+				username: tracery_result[0]['screen_name'],
+				id : user_id
+			},
+			extra:
+			{
+				tracery: tracery_result[0]['tracery'],
+				reply_rules : tracery_result[0]["reply_rules"],
+				last_reply : tracery_result[0]["last_reply"]
+			}
+		});
 	}
 
 
@@ -379,7 +416,7 @@ async function reply_for_account(connectionPool, user_id)
 	var count = 50;
 	if (last_reply == null)
 	{
-		console.log(tracery_result[0]["screen_name"] + " last_reply null, setting to 0");
+		console.log(tracery_result[0]["screen_name"] + " last_reply null, setting to 1");
 		last_reply = "1";
 		count = 1;
 	}
@@ -416,7 +453,21 @@ async function reply_for_account(connectionPool, user_id)
 		catch (e)
 		{
 			console.log("couldn't set last_reply to " + data[0]["id_str"] + " for " + tracery_result[0]["screen_name"] + " " + e);
-			throw(e);
+			Raven.captureException(e, 
+			{
+				user: 
+				{
+					username: tracery_result[0]['screen_name'],
+					id : user_id
+				},
+				extra:
+				{
+					tracery: tracery_result[0]['tracery'],
+					reply_rules : tracery_result[0]["reply_rules"],
+					last_reply : tracery_result[0]["last_reply"]
+				}
+			});
+			return;
 		}
 
 		//now we process the replies
@@ -435,8 +486,7 @@ async function reply_for_account(connectionPool, user_id)
 			catch (e)
 			{
 				console.log("couldn't reply to " + mention["id_str"] + " for " + tracery_result[0]["screen_name"] + " " + e);
-				throw(e);
-
+				
 				Raven.captureException(e, 
 				{
 					user: 
@@ -450,7 +500,6 @@ async function reply_for_account(connectionPool, user_id)
 						mention: mention
 					}
 				});
-			
 			}
 		}
 	}
@@ -475,21 +524,14 @@ async function run()
 	}
 	catch(e)
 	{
-		console.error("error connecting to db: " + e.stack);
 		throw(e);
 		return;
 	}	
 
 	if (!replies && !isNaN(frequency))
 	{
-		try
-		{
-			var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `frequency` = ? AND IFNULL(`blocked_status`, 0) = 0', [frequency]);
-		}
-		catch(e)
-		{
-			console.error("main db error: " + e.stack);
-		}
+		var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `frequency` = ? AND IFNULL(`blocked_status`, 0) = 0', [frequency]);
+		
 
 		if (typeof results === 'undefined')
 		{
@@ -503,7 +545,7 @@ async function run()
 			}
 			catch (e)
 			{
-				console.error("hit error for ", result);
+				Raven.captureException(e, { user: { id : result['user_id'] } });
 			}
 		}
 
@@ -517,8 +559,7 @@ async function run()
 		}
 		catch(e)
 		{
-			console.error("doing replies, db error: " + e.stack);
-			throw (e);
+			Raven.captureException(e, { user: { id : result['user_id'] } });
 		}
 
 
@@ -529,22 +570,14 @@ async function run()
 			}
 			catch (e)
 			{
-				console.error("doing replies, hit error for ", result, e);
+				Raven.captureException(e, { user: { id : result['user_id'] } });
 			}
 		}
 
 		
 	}
 
-	try 
-	{
-		await connectionPool.end();
-	}
-	catch(e)
-	{
-		console.error("db closing connection error: " + e.stack);
-		throw (e);
-	}
+	await connectionPool.end();
 }
 
 run();
