@@ -336,7 +336,7 @@ async function reply_for_account(connectionPool, user_id)
 
 	try
 	{
-		var [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, tracery, user_id, reply_rules from `traceries` where user_id = ?', [user_id]);
+		var [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, tracery, user_id, last_reply, reply_rules from `traceries` where user_id = ?', [user_id]);
 	}
 	catch (e)
 	{
