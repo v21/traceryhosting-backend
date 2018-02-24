@@ -37,11 +37,9 @@ function log_line(screen_name, userid, message, params)
 {
 	if (params)
 	{
-		if (params.status)
-		{
-			params.status = params.status.replace("\n", "\\n");
-		}
 		params = util.inspect(params, {breakLength: Infinity, maxArrayLength:5});
+
+		params = params.replace("\n", "\\n");
 	}
 	console.log(
 		new Date().toISOString(),
@@ -68,10 +66,6 @@ function log_line_error(screen_name, userid, message, params)
 {
 	if (params)
 	{
-		if (params.status)
-		{
-			params.status = params.status.replace("\n", "\\n");
-		}
 		params = util.inspect(params, {breakLength: Infinity, maxArrayLength:5});
 
 		params = params.replace("\n", "\\n");
