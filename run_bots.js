@@ -204,7 +204,7 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 			}
 			catch (err)
 			{
-				console.exception(err);
+				console.error(err);
 				recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				return;
 			}
