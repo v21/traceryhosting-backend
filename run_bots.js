@@ -46,19 +46,16 @@ async function uploadMedia(b64data, T)
 		{
 			if (resp.statusCode == 401)
 			{
-				throw (new Error ("Not authorized"));
+				throw (new Error ("Can't upload media, Not authorized"));
+			}
+			if (resp.statusCode == 403)
+			{
+				throw (new Error ("Can't upload media, Forbidden"));
 			}
 			else
 			{
-				var err = new Error("Couldn't upload, got response status " + resp.statusCode + " (" + resp.statusMessage + ")");
-				//todo filter out auth problems, other common problems
-				Raven.captureException(err,
-				{
-					extra:
-					{
-						response : resp
-					}
-				});
+				var err = new Error("Couldn't upload media, got response status " + resp.statusCode + " (" + resp.statusMessage + ")");
+				
 				throw (err);
 			}
 		}
@@ -67,7 +64,14 @@ async function uploadMedia(b64data, T)
 	catch (e)
 	{
 		//todo filter out auth problems, other common problems
-		Raven.captureException(e);
+		Raven.captureException(err,
+		{
+			extra:
+			{
+				response : resp,
+				data : data
+			}
+		});
 		throw (e);
 	}
 }
