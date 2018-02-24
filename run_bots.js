@@ -173,20 +173,7 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 			}
 			catch (err)
 			{
-				Raven.captureException(err, 
-				{
-					user: 
-					{
-						username: result['screen_name'],
-						id : result['user_id']
-					},
-					extra:
-					{
-						tries_remaining: tries_remaining,
-						mention: in_reply_to,
-						tracery: result['tracery']
-					}
-				});
+				console.exception(err);
 				recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				return;
 			}
