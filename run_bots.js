@@ -28,6 +28,7 @@ function log_line_single(message)
 	console.log(
 		new Date().toISOString(),
 		"arg:" + arg0,
+		"INFO",
 		message
 	);
 }
@@ -45,6 +46,40 @@ function log_line(screen_name, userid, message, params)
 	console.log(
 		new Date().toISOString(),
 		"arg:" + arg0,
+		"INFO",
+		screen_name,
+		"(" + userid + ")",
+		message,
+		params
+	);
+}
+
+function log_line_single_error(message)
+{
+	console.log(
+		new Date().toISOString(),
+		"arg:" + arg0,
+		"ERROR",
+		message
+	);
+}
+
+function log_line_error(screen_name, userid, message, params)
+{
+	if (params)
+	{
+		if (params.status)
+		{
+			params.status = params.status.replace("\n", "\\n");
+		}
+		params = util.inspect(params, {breakLength: Infinity, maxArrayLength:5});
+
+		params = params.replace("\n", "\\n");
+	}
+	console.log(
+		new Date().toISOString(),
+		"arg:" + arg0,
+		"ERROR",
 		screen_name,
 		"(" + userid + ")",
 		message,
@@ -75,6 +110,7 @@ async function uploadMedia(b64data, T)
 	{
 		if (data.errors[0].code == 64) // suspended
 		{
+			log_line_error(null, null, "Can't upload media, suspended", data);
 			throw (new Error ("Can't upload media, suspended"));
 		}
 	}
@@ -82,10 +118,12 @@ async function uploadMedia(b64data, T)
 	{
 		if (resp.statusCode == 401)
 		{
+			log_line_error(null, null, "Can't upload media, Not authorized", data);
 			throw (new Error ("Can't upload media, Not authorized"));
 		}
 		if (resp.statusCode == 403)
 		{
+			log_line_error(null, null, "Can't upload media, Forbidden", data);
 			throw (new Error ("Can't upload media, Forbidden"));
 		}
 		else
@@ -99,6 +137,8 @@ async function uploadMedia(b64data, T)
 						data : data
 					}
 				});
+
+			log_line_error(null, null, err, data);
 			throw (err);
 		}
 	}
@@ -204,7 +244,7 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 			}
 			catch (err)
 			{
-				console.error(err);
+				log_line_error(result["screen_name"], result["user_id"], "failed rendering and uploading media", err);
 				recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				return;
 			}
@@ -255,7 +295,7 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 				}
 				else
 				{
-					log_line(result["screen_name"], result["user_id"], "failed for a more mysterious reason (" + err["code"] + ")", params);
+					log_line_error(result["screen_name"], result["user_id"], "failed to tweet for a more mysterious reason (" + err["code"] + ")", params);
 					Raven.captureMessage("Failed to tweet, Twiter gave err " + err['code'], 
 					{
 						user: 
@@ -278,6 +318,7 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 		}
 		catch (err)
 		{
+			log_line_error(result["screen_name"], result["user_id"], "failed to tweet " + util.inspect(params), err);
 			Raven.captureException(err, 
 			{
 				user: 
@@ -301,6 +342,7 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 	}
 	catch (e)
 	{
+		log_line_error(result["screen_name"], result["user_id"], "failed to tweet " + util.inspect(params), err);
 		Raven.captureException(e, 
 		{
 			user: 
@@ -347,6 +389,7 @@ async function tweet_for_account(connectionPool, user_id)
 	}
 	catch (e)
 	{
+		log_line_error(tracery_result[0]['screen_name'], user_id, "failed to tweet ", e);
 		Raven.captureException(e, 
 		{
 			user: 
@@ -389,6 +432,7 @@ async function reply_for_account(connectionPool, user_id)
 	}
 	catch (e)
 	{
+		log_line_error(tracery_result[0]['screen_name'], user_id, "failed to parse tracery for reply ", e);
 		Raven.captureException(e, 
 		{
 			user: 
@@ -411,6 +455,7 @@ async function reply_for_account(connectionPool, user_id)
 	}
 	catch(e)
 	{
+		log_line_error(tracery_result[0]['screen_name'], user_id, "failed to parse reply_rules ", e);
 		Raven.captureException(e, 
 		{
 			user: 
@@ -456,6 +501,7 @@ async function reply_for_account(connectionPool, user_id)
 		}
 		catch (e)
 		{
+			log_line_error(tracery_result[0]['screen_name'], user_id, "failed to update db for last_reply to " + data[0]["id_str"], e);
 			Raven.captureException(e, 
 			{
 				user: 
@@ -488,6 +534,7 @@ async function reply_for_account(connectionPool, user_id)
 			}
 			catch (e)
 			{
+				log_line_error(tracery_result[0]['screen_name'], user_id, "failed to reply ", e);
 				Raven.captureException(e, 
 				{
 					user: 
@@ -537,6 +584,7 @@ async function run()
 
 		if (typeof results === 'undefined')
 		{
+			log_line_single_error("database connection error");
 			throw(new Error("Database connection error"));
 		}
 
@@ -547,6 +595,7 @@ async function run()
 			}
 			catch (e)
 			{
+				log_line_single_error("failed to tweet for " + result['user_id']);
 				Raven.captureException(e, { user: { id : result['user_id'] } });
 			}
 		}
@@ -561,7 +610,8 @@ async function run()
 		}
 		catch(e)
 		{
-			Raven.captureException(e, { user: { id : result['user_id'] } });
+			log_line_single_error("failed to query db for replies");
+			Raven.captureException(e);
 		}
 
 
@@ -572,6 +622,7 @@ async function run()
 			}
 			catch (e)
 			{
+				log_line_single_error("failed to reply for " + result['user_id']);
 				Raven.captureException(e, { user: { id : result['user_id'] } });
 			}
 		}
