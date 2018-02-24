@@ -38,9 +38,38 @@ async function fetch_img(url, T)
 
 async function uploadMedia(b64data, T)
 {
-	let {data, resp} = await T.post('media/upload', { media_data: b64data });
+	try
+	{
+		var {data, resp} = await T.post('media/upload', { media_data: b64data });
 
-	return data.media_id_string;
+		if (resp.statusCode != 200)
+		{
+			if (resp.statusCode == 401)
+			{
+				throw (new Error ("Not authorized"));
+			}
+			else
+			{
+				var err = new Error("Couldn't upload, got response status " + resp.statusCode + " (" + resp.statusMessage + ")");
+				//todo filter out auth problems, other common problems
+				Raven.captureException(err,
+				{
+					extra:
+					{
+						response : resp
+					}
+				});
+				throw (err);
+			}
+		}
+		return data.media_id_string;
+	}
+	catch (e)
+	{
+		//todo filter out auth problems, other common problems
+		Raven.captureException(e);
+		throw (e);
+	}
 }
 
 // this is much more complex than i thought it would be
@@ -86,7 +115,6 @@ function removeBrackets (text) {
 
 function render_media_tag(match, T)
 {
-
 	var unescapeOpenBracket = /\\{/g;
 	var unescapeCloseBracket = /\\}/g;
 	match = match.replace(unescapeOpenBracket, "{");
@@ -108,7 +136,6 @@ function render_media_tag(match, T)
 
 async function recurse_retry(origin, tries_remaining, processedGrammar, T, result, in_reply_to)
 {
-
 	if (tries_remaining <= 0)
 	{
 		return;
@@ -145,7 +172,6 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 			{
 				console.error("error generating SVG for " + result["screen_name"]);
 				console.error(err);
-				throw(err);
 				recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				return;
 			}
@@ -154,40 +180,83 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 
 		try
 		{
-			await T.post('statuses/update', params);
+			var {data, resp} = await T.post('statuses/update', params);
+
+			if (resp.statusCode != 200)
+			{
+				if (data.errors){var err = data.errors[0];}
+				else { throw new Error("Twitter gave a non-200 response, but no error")}
+
+				if (err["code"] == 186) // too long
+				{
+					//console.log("Tweet (\"" + tweet + "\") over 140 characters - retrying " + (tries_remaining - 1) + " more times.");
+					recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+				}
+				else if (err['code'] == 187) //duplicate tweet
+				{
+					//console.log("Tweet (\"" + tweet + "\") a duplicate - retrying " + (tries_remaining - 1) + " more times.");
+					recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+				}
+
+				else if (err['code'] == 89)  
+				{
+					console.log("Account " + result["screen_name"] + " permissions are invalid");
+				}
+				else if (err['code'] == 226)  
+				{
+					console.log("Account " + result["screen_name"] + " has been flagged as a bot");
+				}
+				else if (err['statusCode'] == 404)
+				{
+					//unknown error
+					
+				}
+				else
+				{
+					console.log("Account " + result["screen_name"] + " has unknown error " + err['code']);
+					Raven.captureMessage("Failed to tweet, Twiter gave err " + err['code'], 
+					{
+						user: 
+						{
+							username: result['screen_name'],
+							id : result['user_id']
+						},
+						extra:
+						{
+							params : params,
+							tries_remaining: tries_remaining,
+							mention: in_reply_to,
+							tracery: result['tracery'],
+							response : resp,
+							data : data
+						}
+					});
+					
+					console.error("twitter returned error " + err['code'] + "for " + result["screen_name"] + " " + JSON.stringify(err, null, 2));
+				}
+			}
 		}
 		catch (err)
 		{
-			if (err["code"] == 186)
+			console.log("Account " + result["screen_name"] + " has unknown error ");
+			Raven.captureException(err, 
 			{
-				//console.log("Tweet (\"" + tweet + "\") over 140 characters - retrying " + (tries_remaining - 1) + " more times.");
-				recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
-			}
-			else if (err['code'] == 187)
-			{
-				//console.log("Tweet (\"" + tweet + "\") a duplicate - retrying " + (tries_remaining - 1) + " more times.");
-				recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
-			}
-
-			else if (err['code'] == 89)  
-			{
-				console.log("Account " + result["screen_name"] + " permissions are invalid");
-			}
-			else if (err['code'] == 226)  
-			{
-				console.log("Account " + result["screen_name"] + " has been flagged as a bot");
-			}
-			else if (err['statusCode'] == 404)
-			{
-				//unknown error
-				
-			}
-			else
-			{
-				console.error("twitter returned error " + err['code'] + "for " + result["screen_name"] + " " + JSON.stringify(err, null, 2));  
-				console.log("twitter returned error " + err['code'] + "for " + result["screen_name"]);  
-				
-			}
+				user: 
+				{
+					username: result['screen_name'],
+					id : result['user_id']
+				},
+				extra:
+				{
+					params : params,
+					tries_remaining: tries_remaining,
+					mention: in_reply_to,
+					tracery: result['tracery'],
+					response : resp,
+					data : data
+				}
+			});
+			throw (err);
 		}
 				
 	}
@@ -207,7 +276,9 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 
 async function tweet_for_account(connectionPool, user_id)
 {
-	let [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, tracery from `traceries` where user_id = ?', [user_id]);
+	let [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, user_id, tracery from `traceries` where user_id = ?', [user_id]);
+
+
 
 	var processedGrammar = tracery.createGrammar(JSON.parse(tracery_result[0]['tracery']));
 	processedGrammar.addModifiers(tracery.baseEngModifiers); 
@@ -221,7 +292,25 @@ async function tweet_for_account(connectionPool, user_id)
 	}
 	);
 
-	await recurse_retry("#origin#", 5, processedGrammar, T, tracery_result[0]);
+	try
+	{
+		await recurse_retry("#origin#", 5, processedGrammar, T, tracery_result[0]);
+	}
+	catch (e)
+	{
+		Raven.captureException(e, 
+		{
+			user: 
+			{
+				username: tracery_result[0]['screen_name'],
+				id : user_id
+			},
+			extra:
+			{
+				tracery: tracery_result[0]['tracery']
+			}
+		});
+	}
 }
 
 async function reply_for_account(connectionPool, user_id)
@@ -332,9 +421,23 @@ async function reply_for_account(connectionPool, user_id)
 			}
 			catch (e)
 			{
-				console.log("couldn't reply to " + data[0]["id_str"] + " for " + tracery_result[0]["screen_name"] + " " + e);
+				console.log("couldn't reply to " + mention["id_str"] + " for " + tracery_result[0]["screen_name"] + " " + e);
 				throw(e);
 
+				Raven.captureException(e, 
+				{
+					user: 
+					{
+						username: tracery_result[0]['screen_name'],
+						id : user_id
+					},
+					extra:
+					{
+						tracery: tracery_result[0]['tracery'],
+						mention: mention
+					}
+				});
+			
 			}
 		}
 	}
