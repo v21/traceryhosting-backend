@@ -337,110 +337,112 @@ async function reply_for_account(connectionPool, user_id)
 
 	try
 	{
-		let [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, tracery, user_id from `traceries` where user_id = ?', [user_id]);
-	
-		try
+		var [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, tracery, user_id, reply_rules from `traceries` where user_id = ?', [user_id]);
+	}
+	catch (e)
+	{
+		console.error("db connection error: " + e);
+		throw(e);
+	}
+
+	var T = new Twit(
 		{
-			var T = new Twit(
-			{
-			    consumer_key:         process.env.TWITTER_CONSUMER_KEY
-			  , consumer_secret:      process.env.TWITTER_CONSUMER_SECRET
-			  , access_token:         tracery_result[0]['token']
-			  , access_token_secret:  tracery_result[0]['token_secret']
-			}
-			);
-
-			var processedGrammar = tracery.createGrammar(JSON.parse(tracery_result[0]["tracery"]));
-
-			processedGrammar.addModifiers(tracery.baseEngModifiers); 
-
-			try
-			{
-				try
-				{
-					var reply_rules = JSON.parse(tracery_result[0]["reply_rules"]);
-				}
-				catch(e)
-				{
-					console.log("couldn't parse reply_rules for " + tracery_result[0]["screen_name"]);
-				}
-				var last_reply = tracery_result[0]['last_reply'];
-				var count = 50;
-				if (last_reply == null)
-				{
-					console.log(tracery_result[0]["screen_name"] + " last_reply null, setting to 0");
-					last_reply = "1";
-					count = 1;
-				}
-				T.get('statuses/mentions_timeline', {count:count, since_id:last_reply, include_entities: false}, function(err, data, response) { ------!!!!todo promisify T.get
-					if (err)
-					{
-						console.log("error fetching mentions for " + tracery_result[0]["screen_name"] + " err:" + err);
-					}
-					else
-					{
-						//todo save last_reply to id in 0
-						if (data.length > 0)
-						{
-							console.log("update for account reply");
-
-							try
-							{
-								let [results, fields] = await connectionPool.query("UPDATE `traceries` SET `last_reply` = ? WHERE `user_id` = ?", [data[0]["id_str"], tracery_result[0]["user_id"]]);
-							
-								console.log("have set last_reply to " + data[0]["id_str"] + " for " + tracery_result[0]["screen_name"]);
-
-								//now we process the replies
-								_.each(data, function(mention, index, list)
-								{
-									console.log("tweet to reply to:" + mention["text"]);
-
-									var origin = _.find(reply_rules, function(origin,rule) {return new RegExp(rule).test(mention["text"]);});
-									if (typeof origin != "undefined")
-									{
-										recurse_retry(origin, 5, processedGrammar, T, tracery_result[0], mention);
-									}
-								});
-								
-							}
-							catch (e)
-							{
-								console.log("couldn't set last_reply to " + data[0]["id_str"] + " for " + tracery_result[0]["screen_name"] + " " + e);
-
-							}
-							
-						}
-
-						
-					}
-
-
-				});
-
-			}
-			catch(e)
-			{
-				console.log("reply_rules error for " + tracery_result[0]["screen_name"] + e);
-			}
+			consumer_key:         process.env.TWITTER_CONSUMER_KEY
+		  , consumer_secret:      process.env.TWITTER_CONSUMER_SECRET
+		  , access_token:         tracery_result[0]['token']
+		  , access_token_secret:  tracery_result[0]['token_secret']
 		}
-		catch (e)
-		{
-			console.error("error generating tweet for " + tracery_result[0]["screen_name"] + "\ntracery: " + tracery_result[0]["tracery"] + "\n\n~~~\nerror: " + e.stack);
-		}
+	);
+
+	try
+	{
+		var processedGrammar = tracery.createGrammar(JSON.parse(tracery_result[0]["tracery"]));
+		processedGrammar.addModifiers(tracery.baseEngModifiers); 
+	}
+	catch (e)
+	{
+		console.error("error generating tweet for " + tracery_result[0]["screen_name"] + "\ntracery: " + tracery_result[0]["tracery"] + "\n\n~~~\nerror: " + e.stack);
+		throw(e);
+	}
+
+	try
+	{
+		var reply_rules = JSON.parse(tracery_result[0]["reply_rules"]);
 	}
 	catch(e)
 	{
-		console.error("db connection error: " + e);
+		console.log("couldn't parse reply_rules for " + tracery_result[0]["screen_name"]);
+		throw(e);
+	}
+
+
+	var last_reply = tracery_result[0]['last_reply'];
+	var count = 50;
+	if (last_reply == null)
+	{
+		console.log(tracery_result[0]["screen_name"] + " last_reply null, setting to 0");
+		last_reply = "1";
+		count = 1;
+	}
+
+	try
+	{
+		var {resp, data} = await T.get('statuses/mentions_timeline', {count:count, since_id:last_reply, include_entities: false});
+
+	}
+	catch (e)
+	{
+		console.log("error fetching mentions for " + tracery_result[0]["screen_name"] + " err:" + e);
+		throw(e);
+	}
+
+	if (resp.statusCode != 200)
+	{
+		console.log("can't fetch mentions for " + tracery_result[0]["screen_name"] + " status code:" + resp.statusCode + " message:" + resp.statusMessage)
 	}
 	
+	//todo save last_reply to id in 0
+	
+	if (data.length > 0)
+	{
+		console.log("update for account reply");
 
-
+		try
+		{
+			let [results, fields] = await connectionPool.query("UPDATE `traceries` SET `last_reply` = ? WHERE `user_id` = ?", 
+															   [data[0]["id_str"], tracery_result[0]["user_id"]]);
 		
-		//console.log("tracery: " + tracery_result[0]["tracery"] + "\n\n");
-		
-  		//recurse_retry(get_reply_origin(tracery_result[0][reply_rules]), 5, processedGrammar, T, tracery_result[0]);
+			console.log("have set last_reply to " + data[0]["id_str"] + " for " + tracery_result[0]["screen_name"]);
+		}
+		catch (e)
+		{
+			console.log("couldn't set last_reply to " + data[0]["id_str"] + " for " + tracery_result[0]["screen_name"] + " " + e);
+			throw(e);
+		}
 
+		//now we process the replies
+		for (const mention of data) {
+			try
+			{
+				console.log("tweet to reply to:" + mention["text"]);
+	
+				var origin = _.find(reply_rules, function(origin,rule) {return new RegExp(rule).test(mention["text"]);});
+				if (typeof origin != "undefined")
+				{
+					await recurse_retry(origin, 5, processedGrammar, T, tracery_result[0], mention);
+				}
 
+			}
+			catch (e)
+			{
+				console.log("couldn't reply to " + data[0]["id_str"] + " for " + tracery_result[0]["screen_name"] + " " + e);
+				throw(e);
+
+			}
+		}
+	}
+
+	
 }
 
 
@@ -456,14 +458,22 @@ async function reply_for_account(connectionPool, user_id)
 async function run()
 {
 	const mysql      = require('mysql2/promise');
-	var connectionPool = await mysql.createPool({
-	    connectionLimit : 10,
-	    host     : 'localhost',
-	    user     : 'tracery_node',
-	    password : process.env.TRACERY_NODE_DB_PASSWORD,
-	    database : 'traceryhosting',
-	    charset : "utf8mb4"
-	});
+	try
+	{
+		var connectionPool = await mysql.createPool({
+			connectionLimit : 10,
+			host     : 'localhost',
+			user     : 'tracery_node',
+			password : process.env.TRACERY_NODE_DB_PASSWORD,
+			database : 'traceryhosting',
+			charset : "utf8mb4"
+		});
+	}
+	catch(e)
+	{
+		console.error("error connecting to db: " + e.stack);
+		throw(e);
+	}	
 
 	if (!replies && !isNaN(frequency))
 	{
@@ -472,20 +482,24 @@ async function run()
 		
 		try
 		{
-			let [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `frequency` = ? AND IFNULL(`blocked_status`, 0) = 0', [frequency]);
-			
-			for (var i = 0; i < results.length; i++) {
-				await tweet_account(connectionPool, results[i]['user_id']);
-			}
-			
-
-			await connectionPool.end();
-
+			var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `frequency` = ? AND IFNULL(`blocked_status`, 0) = 0', [frequency]);
 		}
 		catch(e)
 		{
 			console.error("main db connection error: " + e.stack);
+		}	
+
+		for (const result of results) {
+			try
+			{
+				await tweet_account(connectionPool, result['user_id']);
+			}
+			catch (e)
+			{
+				console.error("hit error for ", result);
+			}
 		}
+
 		
 		
 
@@ -498,19 +512,37 @@ async function run()
 
 		try 
 		{
-			let [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `does_replies` = 1 AND IFNULL(`blocked_status`, 0) = 0');
-			
-			for (var i = 0; i < results.length; i++) {
-				await reply_for_account(connectionPool, results[i]['user_id']);
-			}
-
-			await connectionPool.end();
+			var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `does_replies` = 1 AND IFNULL(`blocked_status`, 0) = 0');
 		}
 		catch(e)
 		{
 			console.error("doing replies, db connection error: " + e.stack);
+			throw (e);
 		}
 
+
+		for (const result of results) {
+			try
+			{
+				await reply_for_account(connectionPool, result['user_id']);
+			}
+			catch (e)
+			{
+				console.error("doing replies, hit error for ", result, e);
+			}
+		}
+
+		
+	}
+
+	try 
+	{
+		await connectionPool.end();
+	}
+	catch(e)
+	{
+		console.error("db closing connection error: " + e.stack);
+		throw (e);
 	}
 }
 
