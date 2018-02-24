@@ -18,7 +18,7 @@ var _ = require('underscore');
 var Twit = require('twit');
 
 var svg2png = require('svg2png');
-var async = require('async');
+var Parallel = require('async-parallel');
 var fs = require('fs');
 var heapdump = require('heapdump');
 
@@ -34,32 +34,25 @@ _.mixin({
 
 
 
-var generate_svg = function(svg_text, T, cb)
+async function generate_svg(svg_text, T)
 {
-	
-		svg2png(new Buffer(svg_text))
-		.then(data => uploadMedia(data.toString('base64'), T, cb))
-		.catch(e => cb(e));
-
+	let data = await svg2png(new Buffer(svg_text));
+	let media_id = await uploadMedia(data.toString('base64'), T);
+	return media_id;
 }
 
-var fetch_img = function(url, T, cb)
+async function fetch_img(url, T)
 {
 	//todo all this
 }
 
-var uploadMedia = function(b64data, T, cb)
+
+
+async function uploadMedia(b64data, T)
 {
-	/*T.post('media/upload', { media_data: b64data }, function (err, data, response) {
-		if (err)
-		{
-			cb(err);
-		}
-		else
-		{
-			cb(null, data.media_id_string);
-		}
-	});*/
+	let {data, resp} = await T.post('media/upload', { media_data: b64data });
+
+	return data.media_id_string;
 }
 
 // this is much more complex than i thought it would be
@@ -103,175 +96,124 @@ function removeBrackets (text) {
 }
 
 
-var recurse_retry = async function(origin, tries_remaining, processedGrammar, T, result, in_reply_to)
+function render_media_tag(match, T)
+{
+
+	var unescapeOpenBracket = /\\{/g;
+	var unescapeCloseBracket = /\\}/g;
+	match = match.replace(unescapeOpenBracket, "{");
+	match = match.replace(unescapeCloseBracket, "}");
+
+	if (match.indexOf("svg ") === 1)
+	{
+		return generate_svg(match.substr(5,match.length - 6), T);
+	}
+	else if (match.indexOf("img ") === 1)
+	{
+		return fetch_img(match.substr(5), T);
+	}
+	else
+	{
+		throw(new Error("error {" + match.substr(1,4) + "... not recognized"));
+	}
+}
+
+async function recurse_retry(origin, tries_remaining, processedGrammar, T, result, in_reply_to)
 {
 
 	if (tries_remaining <= 0)
 	{
 		return;
 	}
-	else
+
+	try
 	{
+		var tweet = processedGrammar.flatten(origin);
+		//console.log(tweet);
+		var tweet_without_image = removeBrackets(tweet);
+		var media_tags = matchBrackets(tweet);
+
+		let params = {};
+
+		if (typeof in_reply_to === 'undefined')
+		{
+			params = { status: tweet_without_image};
+		}
+		else
+		{
+			var screen_name = in_reply_to["user"]["screen_name"];
+			params = {status: "@" + screen_name + " " + tweet_without_image, in_reply_to_status_id:in_reply_to["id_str"]}
+		}
+
+		if (media_tags)
+		{
+			try 
+			{
+				var medias = await Parallel.map(media_tags, _.partial(render_media_tag, _, T));
+				params.media_ids = medias;
+			}
+			catch (err)
+			{
+				console.error("error generating SVG for " + result["screen_name"]);
+				console.error(err);
+				throw(err);
+				recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+				return;
+			}
+		}
+		console.log("trying to tweet " + tweet + "for " + result["screen_name"]);
+
 		try
 		{
-			var tweet = processedGrammar.flatten(origin);
-			//console.log(tweet);
-			var tweet_without_image = removeBrackets(tweet);
-			var media_tags = matchBrackets(tweet);
-			if (media_tags)
+			await T.post('statuses/update', params);
+		}
+		catch (err)
+		{
+			if (err["code"] == 186)
 			{
+				//console.log("Tweet (\"" + tweet + "\") over 140 characters - retrying " + (tries_remaining - 1) + " more times.");
+				recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+			}
+			else if (err['code'] == 187)
+			{
+				//console.log("Tweet (\"" + tweet + "\") a duplicate - retrying " + (tries_remaining - 1) + " more times.");
+				recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+			}
+
+			else if (err['code'] == 89)  
+			{
+				console.log("Account " + result["screen_name"] + " permissions are invalid");
+			}
+			else if (err['code'] == 226)  
+			{
+				console.log("Account " + result["screen_name"] + " has been flagged as a bot");
+			}
+			else if (err['statusCode'] == 404)
+			{
+				//unknown error
 				
-				async.series(media_tags.map(function(match){
-					
-					
-					var unescapeOpenBracket = /\\{/g;
-					var unescapeCloseBracket = /\\}/g;
-					match = match.replace(unescapeOpenBracket, "{");
-					match = match.replace(unescapeCloseBracket, "}");
-
-					if (match.indexOf("svg ") === 1)
-					{
-						return _.partial(generate_svg, match.substr(5,match.length - 6), T);
-					}
-					else if (match.indexOf("img ") === 1)
-					{
-						return _.partial(fetch_img, match.substr(5), T);
-					}
-					else
-					{
-						return function(cb){
-							cb("error {" + match.substr(1,4) + "... not recognized");
-						}
-					}
-				}),
-				function(err, results)
-				{
-					if (err)
-					{
-						console.error("error generating SVG for " + result["screen_name"]);
-						console.error(err);
-						recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
-						return;
-					}
-					var params = {};
-					if (typeof in_reply_to === 'undefined')
-					{
-		  				params = { status: tweet_without_image, media_ids: results };
-					}
-					else
-					{
-						var screen_name = in_reply_to["user"]["screen_name"];
-						params = {status: "@" + screen_name + " " + tweet_without_image, media_ids: results, in_reply_to_status_id:in_reply_to["id_str"]}
-					}
-					
-					T.post('statuses/update', params, function(err, data, response) {
-						if (err)
-						{
-						  	if (err["code"] == 186)
-						  	{
-						  		//console.log("Tweet (\"" + tweet + "\") over 140 characters - retrying " + (tries_remaining - 1) + " more times.");
-						  		recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
-						  	}
-						  	else if (err['code'] == 187)
-					  		{
-					  			//console.log("Tweet (\"" + tweet + "\") a duplicate - retrying " + (tries_remaining - 1) + " more times.");
-					  			recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
-					  		}
-
-						  	else if (err['code'] == 89)  
-					  		{
-					  			console.log("Account " + result["screen_name"] + " permissions are invalid");
-					  		}
-					  		else if (err['code'] == 226)  
-					  		{
-					  			console.log("Account " + result["screen_name"] + " has been flagged as a bot");
-					  		}
-					  		else if (err['statusCode'] == 404)
-					  		{
-					  			//unknown error
-					  		}
-					  		else
-					  		{
-					  			console.error("twitter returned error " + err['code'] + "for " + result["screen_name"] + " " + JSON.stringify(err, null, 2));  
-					  			console.log("twitter returned error " + err['code'] + "for " + result["screen_name"]);  
-					  			
-					  		}
-						  	
-						 
-						}
-
-					});
-				});
-
 			}
 			else
 			{
-
-	  			var params = {};
-				if (typeof in_reply_to === 'undefined')
-				{
-	  				params = { status: tweet};
-				}
-				else
-				{
-					var screen_name = in_reply_to["user"]["screen_name"];
-					params = {status: "@" + screen_name + " " + tweet, in_reply_to_status_id:in_reply_to["id_str"]}
-				}
-				console.log("trying to tweet " + tweet + "for " + result["screen_name"]);
-				T.post('statuses/update', params, function(err, data, response) {
-					if (err)
-					{
-					  	if (err["code"] == 186)
-					  	{
-					  		//console.log("Tweet (\"" + tweet + "\") over 140 characters - retrying " + (tries_remaining - 1) + " more times.");
-					  		recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
-					  	}
-					  	else if (err['code'] == 187)
-				  		{
-				  			//console.log("Tweet (\"" + tweet + "\") a duplicate - retrying " + (tries_remaining - 1) + " more times.");
-				  			recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
-				  		}
-
-					  	else if (err['code'] == 89)  
-				  		{
-				  			console.log("Account " + result["screen_name"] + " permissions are invalid");
-				  		}
-				  		else if (err['code'] == 226)  
-				  		{
-				  			console.log("Account " + result["screen_name"] + " has been flagged as a bot");
-				  		}
-				  		else if (err['statusCode'] == 404)
-				  		{
-				  			//unknown error
-				  			
-				  		}
-				  		else
-				  		{
-				  			console.error("twitter returned error " + err['code'] + "for " + result["screen_name"] + " " + JSON.stringify(err, null, 2));  
-				  			console.log("twitter returned error " + err['code'] + "for " + result["screen_name"]);  
-				  			
-				  		}
-					  	
-					 
-					}
-
-				});
+				console.error("twitter returned error " + err['code'] + "for " + result["screen_name"] + " " + JSON.stringify(err, null, 2));  
+				console.log("twitter returned error " + err['code'] + "for " + result["screen_name"]);  
+				
 			}
-		
-			
 		}
-		catch (e)
+				
+	}
+	catch (e)
+	{
+		if (tries_remaining <= 4)
 		{
-			if (tries_remaining <= 4)
-			{
-				console.error("error generating tweet for " + result["screen_name"] + " (retrying)\nerror: " + e.stack);
-			}
-			recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+			console.error("error generating tweet for " + result["screen_name"] + " (retrying)\nerror: " + e.stack);
 		}
-		
+		recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 	}
 	
+
 };
+	
 
 
 async function tweet_account(connectionPool, user_id)
