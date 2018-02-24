@@ -38,42 +38,33 @@ async function fetch_img(url, T)
 
 async function uploadMedia(b64data, T)
 {
-	try
-	{
-		var {data, resp} = await T.post('media/upload', { media_data: b64data });
+	var {data, resp} = await T.post('media/upload', { media_data: b64data });
 
-		if (resp.statusCode != 200)
-		{
-			if (resp.statusCode == 401)
-			{
-				throw (new Error ("Can't upload media, Not authorized"));
-			}
-			if (resp.statusCode == 403)
-			{
-				throw (new Error ("Can't upload media, Forbidden"));
-			}
-			else
-			{
-				var err = new Error("Couldn't upload media, got response status " + resp.statusCode + " (" + resp.statusMessage + ")");
-				
-				throw (err);
-			}
-		}
-		return data.media_id_string;
-	}
-	catch (e)
+	if (resp.statusCode != 200)
 	{
-		//todo filter out auth problems, other common problems
-		Raven.captureException(err,
+		if (resp.statusCode == 401)
 		{
-			extra:
-			{
-				response : resp,
-				data : data
-			}
-		});
-		throw (e);
+			throw (new Error ("Can't upload media, Not authorized"));
+		}
+		if (resp.statusCode == 403)
+		{
+			throw (new Error ("Can't upload media, Forbidden"));
+		}
+		else
+		{
+			var err = new Error("Couldn't upload media, got response status " + resp.statusCode + " (" + resp.statusMessage + ")");
+			Raven.captureException(err,
+				{
+					extra:
+					{
+						response : resp,
+						data : data
+					}
+				});
+			throw (err);
+		}
 	}
+	return data.media_id_string;
 }
 
 // this is much more complex than i thought it would be
