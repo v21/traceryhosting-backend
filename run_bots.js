@@ -18,7 +18,6 @@ var _ = require('underscore');
 var Twit = require('twit');
 
 var svg2png = require('svg2png');
-var Parallel = require('async-parallel');
 var fs = require('fs');
 var heapdump = require('heapdump');
 
@@ -138,7 +137,8 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 		{
 			try 
 			{
-				var medias = await Parallel.map(media_tags, _.partial(render_media_tag, _, T));
+				var media_promises = media_tags.map(tag => render_media_tag(tag, T));
+				var medias = await Promise.all(media_promises);
 				params.media_ids = medias;
 			}
 			catch (err)

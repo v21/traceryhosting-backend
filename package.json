@@ -9,7 +9,6 @@
   "author": "v21",
   "license": "ISC",
   "dependencies": {
-    "async-parallel": "^1.2.3",
     "git-rev-sync": "^1.10.0",
     "heapdump": "^0.3.9",
     "mysql": "^2.15.0",
