@@ -7,7 +7,7 @@ Raven.config(process.env.SENTRY_DSN, {
 
 var arg0 = process.argv[2];
 var replies = (arg0 === "replies");
-var frequency = parseInt(process.argv[2], 10);
+var frequency = parseInt(arg0, 10);
 //obv only one of these will be true
 
 
@@ -20,7 +20,37 @@ var Twit = require('twit');
 var svg2png = require('svg2png');
 var fs = require('fs');
 var heapdump = require('heapdump');
+var util = require("util");
 
+
+function log_line_single(message)
+{
+	console.log(
+		new Date().toISOString(),
+		"arg:" + arg0,
+		message
+	);
+}
+
+function log_line(screen_name, userid, message, params)
+{
+	if (params)
+	{
+		if (params.status)
+		{
+			params.status = params.status.replace("\n", "\\n");
+		}
+		params = util.inspect(params, {breakLength: Infinity, maxArrayLength:5});
+	}
+	console.log(
+		new Date().toISOString(),
+		"arg:" + arg0,
+		screen_name,
+		"(" + userid + ")",
+		message,
+		params
+	);
+}
 
 async function generate_svg(svg_text, T)
 {
@@ -72,6 +102,8 @@ async function uploadMedia(b64data, T)
 			throw (err);
 		}
 	}
+
+	log_line(null, null, "uploaded media", data);
 	return data.media_id_string;
 }
 
@@ -147,7 +179,6 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 	try
 	{
 		var tweet = processedGrammar.flatten(origin);
-		//console.log(tweet);
 		var tweet_without_image = removeBrackets(tweet);
 		var media_tags = matchBrackets(tweet);
 
@@ -178,7 +209,7 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 				return;
 			}
 		}
-		console.log("trying to tweet " + tweet + "for " + result["screen_name"]);
+		log_line(result["screen_name"], result["user_id"], "tweeting", params);
 
 		try
 		{
@@ -204,28 +235,27 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 					
 				else if (err['code'] == 64)  
 				{
-					console.log("Account " + result["screen_name"] + " is suspended");
+					log_line(result["screen_name"], result["user_id"], "suspended (64)", params);
 				}
 				else if (err['code'] == 89)  
 				{
-					console.log("Account " + result["screen_name"] + " permissions are invalid");
+					log_line(result["screen_name"], result["user_id"], "invalid permissions (89)", params);
 				}
 				else if (err['code'] == 326)  
 				{
-					console.log("Account " + result["screen_name"] + " is temporarily locked for spam");
+					log_line(result["screen_name"], result["user_id"], "temp locked for spam (326)", params);
 				}
 				else if (err['code'] == 226)  
 				{
-					console.log("Account " + result["screen_name"] + " has been flagged as a bot");
+					log_line(result["screen_name"], result["user_id"], "flagged as bot (226)", params);
 				}
 				else if (err['statusCode'] == 404)
 				{
-					//unknown error
-					
+					log_line(result["screen_name"], result["user_id"], "mystery status (404)", params);
 				}
 				else
 				{
-					console.log("Account " + result["screen_name"] + " has unknown error " + err['code']);
+					log_line(result["screen_name"], result["user_id"], "failed for a more mysterious reason (" + err["code"] + ")", params);
 					Raven.captureMessage("Failed to tweet, Twiter gave err " + err['code'], 
 					{
 						user: 
@@ -248,7 +278,6 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 		}
 		catch (err)
 		{
-			console.log("Account " + result["screen_name"] + " has unknown error ");
 			Raven.captureException(err, 
 			{
 				user: 
@@ -403,43 +432,30 @@ async function reply_for_account(connectionPool, user_id)
 	var count = 50;
 	if (last_reply == null)
 	{
-		console.log(tracery_result[0]["screen_name"] + " last_reply null, setting to 1");
+		log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " last reply null, setting to 1 ");
 		last_reply = "1";
 		count = 1;
 	}
 
-	try
-	{
-		var {resp, data} = await T.get('statuses/mentions_timeline', {count:count, since_id:last_reply, include_entities: false});
-
-	}
-	catch (e)
-	{
-		console.log("error fetching mentions for " + tracery_result[0]["screen_name"] + " err:" + e);
-		throw(e);
-	}
+	var {resp, data} = await T.get('statuses/mentions_timeline', {count:count, since_id:last_reply, include_entities: false});
 
 	if (resp.statusCode != 200)
 	{
-		console.log("can't fetch mentions for " + tracery_result[0]["screen_name"] + " status code:" + resp.statusCode + " message:" + resp.statusMessage)
+		log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " can't fetch mentions, statusCode: " + resp.statusCode + " message:" + resp.statusMessage + " data:", data);
 	}
-	
-	//todo save last_reply to id in 0
-	
+		
 	if (data.length > 0)
 	{
-		console.log("update for account reply");
-
 		try
 		{
 			let [results, fields] = await connectionPool.query("UPDATE `traceries` SET `last_reply` = ? WHERE `user_id` = ?", 
 															   [data[0]["id_str"], tracery_result[0]["user_id"]]);
 		
-			console.log("have set last_reply to " + data[0]["id_str"] + " for " + tracery_result[0]["screen_name"]);
+
+			log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " set last_reply to " + data[0]["id_str"]);
 		}
 		catch (e)
 		{
-			console.log("couldn't set last_reply to " + data[0]["id_str"] + " for " + tracery_result[0]["screen_name"] + " " + e);
 			Raven.captureException(e, 
 			{
 				user: 
@@ -461,7 +477,7 @@ async function reply_for_account(connectionPool, user_id)
 		for (const mention of data) {
 			try
 			{
-				console.log("tweet to reply to:" + mention["text"]);
+				log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " replying to ", mention["text"]);
 	
 				var origin = _.find(reply_rules, function(origin,rule) {return new RegExp(rule).test(mention["text"]);});
 				if (typeof origin != "undefined")
@@ -472,8 +488,6 @@ async function reply_for_account(connectionPool, user_id)
 			}
 			catch (e)
 			{
-				console.log("couldn't reply to " + mention["id_str"] + " for " + tracery_result[0]["screen_name"] + " " + e);
-				
 				Raven.captureException(e, 
 				{
 					user: 
@@ -497,6 +511,7 @@ async function reply_for_account(connectionPool, user_id)
 
 async function run()
 {
+	log_line_single("starting");
 	const mysql      = require('mysql2/promise');
 	try
 	{
@@ -565,6 +580,7 @@ async function run()
 	}
 
 	await connectionPool.end();
+	log_line_single("closed");
 }
 
 run();
