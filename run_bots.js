@@ -23,17 +23,6 @@ var fs = require('fs');
 var heapdump = require('heapdump');
 
 
-_.mixin({
-	guid : function(){
-	  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-	    var r = Math.random()*16|0, v = c == 'x' ? r : (r&0x3|0x8);
-	    return v.toString(16);
-	  });
-	}
-});
-
-
-
 async function generate_svg(svg_text, T)
 {
 	let data = await svg2png(new Buffer(svg_text));
@@ -216,62 +205,23 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 	
 
 
-async function tweet_account(connectionPool, user_id)
+async function tweet_for_account(connectionPool, user_id)
 {
+	let [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, tracery from `traceries` where user_id = ?', [user_id]);
 
+	var processedGrammar = tracery.createGrammar(JSON.parse(tracery_result[0]['tracery']));
+	processedGrammar.addModifiers(tracery.baseEngModifiers); 
+	
+	var T = new Twit(
+	{
+		consumer_key:         process.env.TWITTER_CONSUMER_KEY
+		, consumer_secret:      process.env.TWITTER_CONSUMER_SECRET
+		, access_token:         tracery_result[0]['token']
+		, access_token_secret:  tracery_result[0]['token_secret']
+	}
+	);
 
-	// if (index % 100 == 0)
-	// {
-	// 	heapdump.writeSnapshot(function(err, filename) {
-	// 	  console.log('dump written to', filename);
-	// 	});
-	// 	console.log(index, "mem usage: ", process.memoryUsage());
-	// }
-
-	//setTimeout(function () {
-		//console.log("select for account " + user_id);
-		try
-		{
-			let [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, tracery from `traceries` where user_id = ?', [user_id]);
-
-			//console.log(tracery_result);
-			try
-			{
-				//console.log("tweeting for: " + result["screen_name"]);
-				var processedGrammar = tracery.createGrammar(JSON.parse(tracery_result[0]['tracery']));
-				processedGrammar.addModifiers(tracery.baseEngModifiers); 
-				
-				var T = new Twit(
-				{
-				    consumer_key:         process.env.TWITTER_CONSUMER_KEY
-				  , consumer_secret:      process.env.TWITTER_CONSUMER_SECRET
-				  , access_token:         tracery_result[0]['token']
-				  , access_token_secret:  tracery_result[0]['token_secret']
-				}
-				);
-
-		  		await recurse_retry("#origin#", 5, processedGrammar, T, tracery_result[0]);
-
-				//console.log("recurse_retryd for account " + user_id);
-			}
-			catch (e)
-			{
-				console.error("error generating tweet for " + tracery_result[0]["screen_name"] + "\ntracery: " + tracery_result[0]["tracery"] + "\n\n~~~\nerror: " + e.stack);
-			}
-				
-
-		}
-		catch(e)
-		{
-				console.error("db connection error: " + e);
-
-		}
-
-			
-		
-    //}, 1000 * 2 * index); //one bot per 2 secs, to stop clustering 
-
-				
+	await recurse_retry("#origin#", 5, processedGrammar, T, tracery_result[0]);
 }
 
 async function reply_for_account(connectionPool, user_id)
@@ -393,15 +343,6 @@ async function reply_for_account(connectionPool, user_id)
 }
 
 
-
-// connectionPool.connect(function(err) {
-//   if (err) {
-//     console.error('error connecting: ' + err.stack);
-//     return;
-//   }
- 
-
-
 async function run()
 {
 	const mysql      = require('mysql2/promise');
@@ -420,38 +361,35 @@ async function run()
 	{
 		console.error("error connecting to db: " + e.stack);
 		throw(e);
+		return;
 	}	
 
 	if (!replies && !isNaN(frequency))
 	{
-
-		//console.log("select all");
-		
 		try
 		{
 			var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `frequency` = ? AND IFNULL(`blocked_status`, 0) = 0', [frequency]);
 		}
 		catch(e)
 		{
-			console.error("main db connection error: " + e.stack);
-		}	
+			console.error("main db error: " + e.stack);
+		}
+
+		if (typeof results === 'undefined')
+		{
+			throw(new Error("Database connection error"));
+		}
 
 		for (const result of results) {
 			try
 			{
-				await tweet_account(connectionPool, result['user_id']);
+				await tweet_for_account(connectionPool, result['user_id']);
 			}
 			catch (e)
 			{
 				console.error("hit error for ", result);
 			}
 		}
-
-		
-		
-
-
-
 
 	}
 	else if (replies)
@@ -463,7 +401,7 @@ async function run()
 		}
 		catch(e)
 		{
-			console.error("doing replies, db connection error: " + e.stack);
+			console.error("doing replies, db error: " + e.stack);
 			throw (e);
 		}
 
