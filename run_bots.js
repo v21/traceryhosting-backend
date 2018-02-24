@@ -37,7 +37,7 @@ function log_line(screen_name, userid, message, params)
 {
 	if (params)
 	{
-		paramString = util.inspect(params, {breakLength: Infinity, maxArrayLength:5});
+		var paramString = util.inspect(params, {breakLength: Infinity, maxArrayLength:5});
 
 		paramString = paramString.replace("\n", "\\n");
 	}
@@ -48,7 +48,7 @@ function log_line(screen_name, userid, message, params)
 		screen_name,
 		"(" + userid + ")",
 		message,
-		paramString
+		paramString ? paramString : ""
 	);
 }
 
@@ -66,7 +66,7 @@ function log_line_error(screen_name, userid, message, params)
 {
 	if (params)
 	{
-		paramString = util.inspect(params, {breakLength: Infinity, maxArrayLength:5});
+		var paramString = util.inspect(params, {breakLength: Infinity, maxArrayLength:5});
 
 		paramString = paramString.replace("\n", "\\n");
 	}
@@ -77,7 +77,7 @@ function log_line_error(screen_name, userid, message, params)
 		screen_name,
 		"(" + userid + ")",
 		message,
-		paramString
+		paramString ? paramString : ""
 	);
 }
 
@@ -252,7 +252,10 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 			if (resp.statusCode != 200)
 			{
 				if (data.errors){var err = data.errors[0];}
-				else { throw new Error("Twitter gave a non-200 response, but no error")}
+				else { 
+					log_line(result["screen_name"], result["user_id"], "no explicit error given (maybe HTTP 431)", params);
+					return;
+				}
 
 				if (err["code"] == 186) // too long
 				{
@@ -336,7 +339,7 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 	}
 	catch (e)
 	{
-		log_line_error(result["screen_name"], result["user_id"], "failed to tweet " + util.inspect(params), err);
+		log_line_error(result["screen_name"], result["user_id"], "failed to tweet ", err);
 		Raven.captureException(e, 
 		{
 			user: 
