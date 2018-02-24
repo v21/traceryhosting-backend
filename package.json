@@ -10,10 +10,12 @@
   "license": "ISC",
   "dependencies": {
     "async": "^1.5.1",
+    "git-rev-sync": "^1.10.0",
     "heapdump": "^0.3.9",
     "mysql": "^2.15.0",
     "mysql2": "^1.5.2",
     "pn": "^1.1.0",
+    "raven": "^2.4.1",
     "svg2png": "github:v21/svg2png",
     "tracery-grammar": "2.7.2",
     "twit": "^2",

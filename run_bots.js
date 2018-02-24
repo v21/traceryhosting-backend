@@ -1,4 +1,9 @@
-
+var git = require('git-rev-sync');
+var Raven = require('raven');
+Raven.config(process.env.SENTRY_DSN, {
+	environment: process.env.ENVIRONMENT_NAME,
+	release: git.long()
+}).install();
 
 var arg0 = process.argv[2];
 var replies = (arg0 === "replies");
