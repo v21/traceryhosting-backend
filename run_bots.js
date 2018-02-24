@@ -40,6 +40,14 @@ async function uploadMedia(b64data, T)
 {
 	var {data, resp} = await T.post('media/upload', { media_data: b64data });
 
+
+	if (data.errors)
+	{
+		if (data.errors[0].code == 64) // suspended
+		{
+			throw (new Error ("Can't upload media, suspended"));
+		}
+	}
 	if (resp.statusCode != 200)
 	{
 		if (resp.statusCode == 401)
