@@ -11,12 +11,12 @@
   "dependencies": {
     "async": "^1.5.1",
     "heapdump": "^0.3.9",
-    "mysql": "^2.6.2",
-    "mysql2": "^1.4.2",
-    "pn": "^1.0.0",
-    "svg2png": "v21/svg2png",
+    "mysql": "^2.15.0",
+    "mysql2": "^1.5.2",
+    "pn": "^1.1.0",
+    "svg2png": "github:v21/svg2png",
     "tracery-grammar": "2.7.2",
-    "twit": "^1.1.20",
+    "twit": "^2",
     "underscore": "^1.8.3"
   }
 }
