@@ -21,6 +21,7 @@ var svg2png = require('svg2png');
 var fs = require('fs');
 var heapdump = require('heapdump');
 var util = require("util");
+const fetch = require('node-fetch');
 
 
 function log_line_single(message)
@@ -90,10 +91,27 @@ async function generate_svg(svg_text, T)
 
 async function fetch_img(url, T)
 {
-	//todo all this
+	log_line(null, null, "fetching " + url);
+	let response = await fetch(url);
+	if (response.ok)
+	{
+		log_line(null, null, "fetched " + url);
+		let buffer = await response.buffer();
+		let media_id = await uploadMedia(buffer.toString('base64'), T); //doesn't allow gifs/movies
+		return media_id;
+	}
+	else
+	{
+		throw(new Error("couldn't fetch " + url + ", returned " + response.status));
+	}
 }
 
+async function uploadMediaChunked(buffer, mimeType, T)
+{
+	//todo see https://github.com/ttezel/twit/blob/master/tests/rest_chunked_upload.js#L20
+	//get mimeType with https://www.npmjs.com/package/file-type
 
+}
 
 async function uploadMedia(b64data, T)
 {
@@ -200,7 +218,7 @@ function render_media_tag(match, T)
 	}
 	else if (match.indexOf("img ") === 1)
 	{
-		return fetch_img(match.substr(5), T);
+		return fetch_img(match.substr(5, match.length - 6), T);
 	}
 	else
 	{
