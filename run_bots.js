@@ -108,7 +108,7 @@ async function uploadMedia(b64data, T)
 			throw (new Error ("Can't upload media, suspended"));
 		}
 	}
-	if (resp.statusCode != 200)
+	if (!resp || resp.statusCode != 200)
 	{
 		if (resp.statusCode == 401)
 		{
@@ -119,6 +119,11 @@ async function uploadMedia(b64data, T)
 		{
 			log_line_error(null, null, "Can't upload media, Forbidden", data);
 			throw (new Error ("Can't upload media, Forbidden"));
+		}
+		if (resp.statusCode == 400)
+		{
+			log_line_error(null, null, "Can't upload media, Bad Request", data);
+			throw (new Error ("Can't upload media, 400 Bad Request"));
 		}
 		else
 		{
@@ -249,7 +254,7 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 		{
 			var {data, resp} = await T.post('statuses/update', params);
 
-			if (resp.statusCode != 200)
+			if (!resp || resp.statusCode != 200)
 			{
 				if (data.errors){var err = data.errors[0];}
 				else { 
@@ -481,7 +486,7 @@ async function reply_for_account(connectionPool, user_id)
 
 	var {resp, data} = await T.get('statuses/mentions_timeline', {count:count, since_id:last_reply, include_entities: false});
 
-	if (resp.statusCode != 200)
+	if (!resp || resp.statusCode != 200)
 	{
 		log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " can't fetch mentions, statusCode: " + resp.statusCode + " message:" + resp.statusMessage + " data:", data);
 	}
