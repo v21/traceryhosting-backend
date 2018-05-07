@@ -253,6 +253,7 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 
 		if (media_tags)
 		{
+			let start_time_for_processing_tags = process.hrtime();
 			try 
 			{
 				var media_promises = media_tags.map(tag => render_media_tag(tag, T));
@@ -264,6 +265,33 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 				log_line_error(result["screen_name"], result["user_id"], "failed rendering and uploading media", err);
 				recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				return;
+			}
+			let processing_time = process.hrtime(start_time_for_processing_tags);
+			if (processing_time[0] > 5) {
+				log_line(result["screen_name"], result["user_id"], `processing media tags took ${processing_time[0]}:${processing_time[1]}`);
+			}
+			if (processing_time[0] > 30) {
+				Raven.captureMessage("Processing media tags took over 30 secs", 
+				{
+					user: 
+					{
+						username: result['screen_name'],
+						id : result['user_id']
+					},
+					extra:
+					{
+						processing_time: processing_time,
+						media_tags : media_tags,
+						tweet : tweet,
+						params : params,
+						tries_remaining: tries_remaining,
+						mention: in_reply_to,
+						tracery: result['tracery'],
+						response : resp,
+						data : data
+					}
+				});
+					
 			}
 		}
 		log_line(result["screen_name"], result["user_id"], "tweeting", params);
