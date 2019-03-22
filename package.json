@@ -17,7 +17,7 @@
     "pn": "^1.1.0",
     "raven": "^2.4.1",
     "svg2png": "github:v21/svg2png",
-    "tracery-grammar": "2.7.2",
+    "tracery-grammar": "^2.7.2",
     "twit": "^2",
     "underscore": "^1.8.3"
   }
