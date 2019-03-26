@@ -55,7 +55,7 @@ function log_line(screen_name, userid, message, params)
 
 function log_line_single_error(message)
 {
-	console.log(
+	console.error(
 		new Date().toISOString(),
 		"arg:" + arg0,
 		"ERROR",
@@ -71,7 +71,7 @@ function log_line_error(screen_name, userid, message, params)
 
 		paramString = paramString.replace("\n", "\\n");
 	}
-	console.log(
+	console.error(
 		new Date().toISOString(),
 		"arg:" + arg0,
 		"ERROR",
@@ -146,6 +146,8 @@ async function uploadMedia(b64data, T)
 		else
 		{
 			var err = new Error("Couldn't upload media, got response status " + resp.statusCode + " (" + resp.statusMessage + ")");
+
+			log_line_error(null, null, err, data);
 			Raven.captureException(err,
 				{
 					extra:
@@ -155,7 +157,6 @@ async function uploadMedia(b64data, T)
 					}
 				});
 
-			log_line_error(null, null, err, data);
 			throw (err);
 		}
 	}
@@ -300,51 +301,75 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 		{
 			var {data, resp} = await T.post('statuses/update', params);
 
-			if (!resp || resp.statusCode != 200)
+			if (!resp)
 			{
-				if (data.errors){var err = data.errors[0];}
-				else { 
-					log_line(result["screen_name"], result["user_id"], "no explicit error given (maybe HTTP 431)", params);
-					return;
-				}
+				if (resp.statusCode != 200)
+				{
+					if (data.errors){var err = data.errors[0];}
+					else { 
+						log_line(result["screen_name"], result["user_id"], "no explicit error given (maybe HTTP 431)", params);
+						return;
+					}
 
-				if (err["code"] == 186) // too long
-				{
-					recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+					if (err["code"] == 186) // too long
+					{
+						recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+					}
+					else if (err['code'] == 187) //duplicate tweet
+					{
+						recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+					}
+					else if (err['code'] == 170) //empty tweet
+					{
+						recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+					}
+						
+					else if (err['code'] == 64)  
+					{
+						log_line(result["screen_name"], result["user_id"], "suspended (64)", params);
+					}
+					else if (err['code'] == 89)  
+					{
+						log_line(result["screen_name"], result["user_id"], "invalid permissions (89)", params);
+					}
+					else if (err['code'] == 326)  
+					{
+						log_line(result["screen_name"], result["user_id"], "temp locked for spam (326)", params);
+					}
+					else if (err['code'] == 226)  
+					{
+						log_line(result["screen_name"], result["user_id"], "flagged as bot (226)", params);
+					}
+					else if (err['statusCode'] == 404)
+					{
+						log_line(result["screen_name"], result["user_id"], "mystery status (404)", params);
+					}
+					else
+					{
+						log_line_error(result["screen_name"], result["user_id"], "failed to tweet for a more mysterious reason (" + err["code"] + ")", params);
+						Raven.captureMessage("Failed to tweet, Twiter gave err " + err['code'], 
+						{
+							user: 
+							{
+								username: result['screen_name'],
+								id : result['user_id']
+							},
+							extra:
+							{
+								params : params,
+								tries_remaining: tries_remaining,
+								mention: in_reply_to,
+								tracery: result['tracery'],
+								response : resp,
+								data : data
+							}
+						});
+					}
 				}
-				else if (err['code'] == 187) //duplicate tweet
+				else 
 				{
-					recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
-				}
-				else if (err['code'] == 170) //empty tweet
-				{
-					recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
-				}
-					
-				else if (err['code'] == 64)  
-				{
-					log_line(result["screen_name"], result["user_id"], "suspended (64)", params);
-				}
-				else if (err['code'] == 89)  
-				{
-					log_line(result["screen_name"], result["user_id"], "invalid permissions (89)", params);
-				}
-				else if (err['code'] == 326)  
-				{
-					log_line(result["screen_name"], result["user_id"], "temp locked for spam (326)", params);
-				}
-				else if (err['code'] == 226)  
-				{
-					log_line(result["screen_name"], result["user_id"], "flagged as bot (226)", params);
-				}
-				else if (err['statusCode'] == 404)
-				{
-					log_line(result["screen_name"], result["user_id"], "mystery status (404)", params);
-				}
-				else
-				{
-					log_line_error(result["screen_name"], result["user_id"], "failed to tweet for a more mysterious reason (" + err["code"] + ")", params);
-					Raven.captureMessage("Failed to tweet, Twiter gave err " + err['code'], 
+					log_line_error(result["screen_name"], result["user_id"], "failed to tweet, http status code " + resp.statusCode + ".", params);
+					Raven.captureMessage("Failed to tweet, Twiter gave http status code " + resp.statusCode, 
 					{
 						user: 
 						{
