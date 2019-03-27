@@ -82,14 +82,41 @@ function log_line_error(screen_name, userid, message, params)
 	);
 }
 
-async function generate_svg(svg_text, T)
+async function set_last_error(connectionPool, user_id, error_code) 
+{
+	try
+	{
+		let [results, fields] = await connectionPool.query("UPDATE `traceries` SET `last_error_code` = ? WHERE `user_id` = ?", 
+			[error_code, user_id]);
+	
+		log_line(user_id, " set last_error_code to " + error_code);
+	}
+	catch (e)
+	{
+		log_line_error(user_id, "failed to update db for last_error_code to " + error_code, e);
+		Raven.captureException(e, 
+		{
+			user: 
+			{
+				id : user_id
+			},
+			extra:
+			{	
+				error_code : error_code
+			}
+		});
+		return;
+	}
+}
+
+async function generate_svg(svg_text, T, connectionPool, user_id)
 {
 	let data = await svg2png(new Buffer(svg_text));
-	let media_id = await uploadMedia(data.toString('base64'), T);
+	let media_id = await uploadMedia(data.toString('base64'), T, connectionPool, user_id);
 	return media_id;
 }
 
-async function fetch_img(url, T)
+async function fetch_img(url, T, connectionPool, user_id)
 {
 	log_line(null, null, "fetching " + url);
 	let response = await fetch(url);
@@ -97,7 +124,7 @@ async function fetch_img(url, T)
 	{
 		log_line(null, null, "fetched " + url);
 		let buffer = await response.buffer();
-		let media_id = await uploadMedia(buffer.toString('base64'), T); //doesn't allow gifs/movies
+		let media_id = await uploadMedia(buffer.toString('base64'), T, connectionPool, user_id); //doesn't allow gifs/movies
 		return media_id;
 	}
 	else
@@ -113,10 +140,19 @@ async function uploadMediaChunked(buffer, mimeType, T)
 
 }
 
-async function uploadMedia(b64data, T)
+async function uploadMedia(b64data, T, connectionPool, user_id)
 {
 	var {data, resp} = await T.post('media/upload', { media_data: b64data });
 
+	if (data.errors && data.errors[0].code)
+	{
+		await set_last_error(connectionPool, user_id, data.errors[0].code);
+	}
+	else if (!resp || resp.statusCode != 200)
+	{
+		await set_last_error(connectionPool, user_id, resp.statusCode);
+	}
+	
 
 	if (data.errors)
 	{
@@ -125,9 +161,30 @@ async function uploadMedia(b64data, T)
 			log_line_error(null, null, "Can't upload media, suspended", data);
 			throw (new Error ("Can't upload media, suspended"));
 		}
+		else {
+			var err = new Error("Couldn't upload media, got response code " + data.errors[0].code);
+			Raven.captureException(err,
+				{
+					user: 
+					{
+						id : user_id
+					},
+					extra:
+					{
+						response : resp,
+						data : data
+					}
+				});
+
+			throw (err);
+		}
 	}
-	if (!resp || resp.statusCode != 200)
+	else if (!resp || resp.statusCode != 200)
 	{
+
+		if (resp.statusCode) {
+			await set_last_error(connectionPool, user_id, resp.statusCode);
+		}
 		if (resp.statusCode == 401)
 		{
 			log_line_error(null, null, "Can't upload media, Not authorized", data);
@@ -150,6 +207,10 @@ async function uploadMedia(b64data, T)
 			log_line_error(null, null, err, data);
 			Raven.captureException(err,
 				{
+					user: 
+					{
+						id : user_id
+					},
 					extra:
 					{
 						response : resp,
@@ -206,7 +267,7 @@ function removeBrackets (text) {
 }
 
 
-function render_media_tag(match, T)
+function render_media_tag(match, T, connectionPool, user_id)
 {
 	var unescapeOpenBracket = /\\{/g;
 	var unescapeCloseBracket = /\\}/g;
@@ -215,11 +276,11 @@ function render_media_tag(match, T)
 
 	if (match.indexOf("svg ") === 1)
 	{
-		return generate_svg(match.substr(5,match.length - 6), T);
+		return generate_svg(match.substr(5,match.length - 6), T, connectionPool, user_id);
 	}
 	else if (match.indexOf("img ") === 1)
 	{
-		return fetch_img(match.substr(5, match.length - 6), T);
+		return fetch_img(match.substr(5, match.length - 6), T, connectionPool, user_id);
 	}
 	else
 	{
@@ -227,7 +288,7 @@ function render_media_tag(match, T)
 	}
 }
 
-async function recurse_retry(origin, tries_remaining, processedGrammar, T, result, in_reply_to)
+async function recurse_retry(connectionPool, origin, tries_remaining, processedGrammar, T, result, in_reply_to)
 {
 	if (tries_remaining <= 0)
 	{
@@ -257,14 +318,14 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 			let start_time_for_processing_tags = process.hrtime();
 			try 
 			{
-				var media_promises = media_tags.map(tag => render_media_tag(tag, T));
+				var media_promises = media_tags.map(tag => render_media_tag(tag, T, connectionPool, result["user_id"]));
 				var medias = await Promise.all(media_promises);
 				params.media_ids = medias;
 			}
 			catch (err)
 			{
 				log_line_error(result["screen_name"], result["user_id"], "failed rendering and uploading media", err);
-				recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+				recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				return;
 			}
 			let processing_time = process.hrtime(start_time_for_processing_tags);
@@ -301,29 +362,31 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 		{
 			var {data, resp} = await T.post('statuses/update', params);
 
-			if (!resp)
-			{
-				if (resp.statusCode != 200)
+			if (!resp || resp.statusCode != 200)
 				{
-					if (data.errors){var err = data.errors[0];}
+					if (data.errors){
+						var err = data.errors[0];
+
+						await set_last_error(connectionPool, result["user_id"], err["code"]);
+					}
 					else { 
+						await set_last_error(connectionPool, result["user_id"], resp.statusCode);
 						log_line(result["screen_name"], result["user_id"], "no explicit error given (maybe HTTP 431)", params);
 						return;
 					}
 
 					if (err["code"] == 186) // too long
 					{
-						recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+						recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 					}
 					else if (err['code'] == 187) //duplicate tweet
 					{
-						recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+						recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 					}
 					else if (err['code'] == 170) //empty tweet
 					{
-						recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+						recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 					}
-						
 					else if (err['code'] == 64)  
 					{
 						log_line(result["screen_name"], result["user_id"], "suspended (64)", params);
@@ -387,7 +450,7 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 						}
 					});
 				}
-			}
+			
 		}
 		catch (err)
 		{
@@ -430,7 +493,7 @@ async function recurse_retry(origin, tries_remaining, processedGrammar, T, resul
 				tracery: result['tracery']
 			}
 		});
-		recurse_retry(origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+		recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 	}
 	
 
@@ -458,7 +521,7 @@ async function tweet_for_account(connectionPool, user_id)
 
 	try
 	{
-		await recurse_retry("#origin#", 5, processedGrammar, T, tracery_result[0]);
+		await recurse_retry(connectionPool, "#origin#", 5, processedGrammar, T, tracery_result[0]);
 	}
 	catch (e)
 	{
@@ -601,7 +664,7 @@ async function reply_for_account(connectionPool, user_id)
 				var origin = _.find(reply_rules, function(origin,rule) {return new RegExp(rule).test(mention["text"]);});
 				if (typeof origin != "undefined")
 				{
-					await recurse_retry(origin, 5, processedGrammar, T, tracery_result[0], mention);
+					await recurse_retry(connectionPool, origin, 5, processedGrammar, T, tracery_result[0], mention);
 				}
 
 			}

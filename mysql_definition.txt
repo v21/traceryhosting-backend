@@ -7,5 +7,10 @@ CREATE TABLE `traceries` (
   `user_id` varchar(64) NOT NULL DEFAULT '',
   `public_source` tinyint(1) DEFAULT NULL,
   `blocked_status` smallint(6) DEFAULT NULL,
+  `does_replies` tinyint(1) DEFAULT '0',
+  `reply_rules` mediumtext,
+  `created_on` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `last_updated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `last_error_code` smallint(6) DEFAULT NULL,
   PRIMARY KEY (`user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
