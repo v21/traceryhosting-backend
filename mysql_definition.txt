@@ -9,8 +9,11 @@ CREATE TABLE `traceries` (
   `blocked_status` smallint(6) DEFAULT NULL,
   `does_replies` tinyint(1) DEFAULT '0',
   `reply_rules` mediumtext,
-  `created_on` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  `last_updated` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `last_reply` varchar(25) DEFAULT NULL,
+  `created_on` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `last_updated` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `last_error_code` smallint(6) DEFAULT NULL,
-  PRIMARY KEY (`user_id`)
+  PRIMARY KEY (`user_id`),
+  KEY `token` (`token`),
+  KEY `screen_name` (`screen_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
