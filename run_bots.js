@@ -715,7 +715,7 @@ async function run()
 
 	if (!replies && !isNaN(frequency))
 	{
-		var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `frequency` = ? AND IFNULL(`blocked_status`, 0) = 0', [frequency]);
+		var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `frequency` = ? AND IFNULL(`blocked_status`, 0) = 0  AND (`last_error_code` IS NULL OR `last_error_code` NOT IN (64, 89, 326))', [frequency]);
 		
 
 		if (typeof results === 'undefined')
@@ -742,7 +742,7 @@ async function run()
 
 		try 
 		{
-			var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `does_replies` = 1 AND IFNULL(`blocked_status`, 0) = 0');
+			var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `does_replies` = 1 AND IFNULL(`blocked_status`, 0) = 0 AND (`last_error_code` IS NULL OR `last_error_code` NOT IN (64, 89, 326))');
 		}
 		catch(e)
 		{
