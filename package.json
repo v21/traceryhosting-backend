@@ -13,7 +13,7 @@
     "heapdump": "^0.3.12",
     "mysql": "^2.16.0",
     "mysql2": "^1.6.5",
-    "node-fetch": "^2.3.0",
+    "node-fetch": "^2.6.1",
     "pn": "^1.1.0",
     "raven": "^2.6.4",
     "svg2png": "github:v21/svg2png",
