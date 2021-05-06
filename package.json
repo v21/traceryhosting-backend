@@ -19,6 +19,6 @@
     "svg2png": "github:v21/svg2png",
     "tracery-grammar": "^2.7.4",
     "twit": "2.2.9",
-    "underscore": "^1.9.1"
+    "underscore": "^1.12.1"
   }
 }
