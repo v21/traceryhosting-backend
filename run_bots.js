@@ -664,7 +664,10 @@ async function reply_for_account(connectionPool, user_id)
 				var origin = _.find(reply_rules, function(origin,rule) {return new RegExp(rule).test(mention["text"]);});
 				if (typeof origin != "undefined")
 				{
-					await recurse_retry(connectionPool, origin, 5, processedGrammar, T, tracery_result[0], mention);
+					if (Math.random() < 0.95)
+					{
+						await recurse_retry(connectionPool, origin, 5, processedGrammar, T, tracery_result[0], mention);
+					}
 				}
 
 			}
