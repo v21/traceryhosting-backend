@@ -1,4 +1,4 @@
-These instructions assume you;ev already set up the front end side of this: if not, get you to `https://github.com/v21/traceryhosting-frontend` and at least read the README there.
+These instructions assume you've already set up the front end side of this: if not, get you to `https://github.com/v21/traceryhosting-frontend` and at least read the README there.
 
 Back? Okay.
 
