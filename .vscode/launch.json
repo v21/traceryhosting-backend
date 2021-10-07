@@ -10,9 +10,10 @@
             "name": "Launch Program",
             "program": "${workspaceFolder}/run_bots.js",
             "envFile":"${workspaceFolder}/.env",
-            "runtimeVersion": "7.10.1",
+            "runtimeVersion": "14.18.0",
+            "runtimeArgs": ["--trace-warnings"],
             "args": [
-                "replies"
+                "42"
             ]
         }
     ]
