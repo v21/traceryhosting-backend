@@ -1,3 +1,5 @@
+// // @ts-check
+
 var git = require('git-rev-sync');
 var Raven = require('raven');
 Raven.config(process.env.SENTRY_DSN, {
@@ -5,11 +7,12 @@ Raven.config(process.env.SENTRY_DSN, {
 	release: git.long()
 }).install();
 
+const { createConverter } = require('convert-svg-to-png');
+
 var arg0 = process.argv[2];
 var replies = (arg0 === "replies");
 var frequency = parseInt(arg0, 10);
 //obv only one of these will be true
-
 
 
 var tracery = require('tracery-grammar');
@@ -17,11 +20,12 @@ var _ = require('underscore');
 
 var Twit = require('twit');
 
-var svg2png = require('svg2png');
 var fs = require('fs');
 var heapdump = require('heapdump');
 var util = require("util");
-const fetch = require('node-fetch');
+const fetch = import('node-fetch');
+
+const mysql = require('mysql2/promise');
 
 
 function log_line_single(message)
@@ -34,6 +38,12 @@ function log_line_single(message)
 	);
 }
 
+/**
+ * @param {any} screen_name
+ * @param {string} userid
+ * @param {string} [message]
+ * @param {object} [params]
+ */
 function log_line(screen_name, userid, message, params)
 {
 	if (params)
@@ -53,6 +63,9 @@ function log_line(screen_name, userid, message, params)
 	);
 }
 
+/**
+ * @param {string} message
+ */
 function log_line_single_error(message)
 {
 	console.error(
@@ -63,6 +76,12 @@ function log_line_single_error(message)
 	);
 }
 
+/**
+ * @param {any} screen_name
+ * @param {string} userid
+ * @param {string | Error} message
+ * @param {{}} [params]
+ */
 function log_line_error(screen_name, userid, message, params)
 {
 	if (params)
@@ -82,6 +101,11 @@ function log_line_error(screen_name, userid, message, params)
 	);
 }
 
+/**
+ * @param {{ query: (arg0: string, arg1: any[]) => PromiseLike<[any, any]> | [any, any]; }} connectionPool
+ * @param {any} user_id
+ * @param {string | number} error_code
+ */
 async function set_last_error(connectionPool, user_id, error_code) 
 {
 	try
@@ -109,16 +133,22 @@ async function set_last_error(connectionPool, user_id, error_code)
 	}
 }
 
-async function generate_svg(svg_text, T, connectionPool, user_id)
+/**
+ * @param {string} svg_text
+ * @param {Twit} T
+ * @param {any} connectionPool
+ * @param {any} svgConverter
+ * @param {string} user_id
+ */
+async function generate_svg(svg_text, T, connectionPool, svgConverter, user_id)
 {
-	let data = await svg2png(new Buffer(svg_text));
+	const data = await svgConverter.convert(svg_text);
 	let media_id = await uploadMedia(data.toString('base64'), T, connectionPool, user_id);
 	return media_id;
 }
 
 async function fetch_img(url, T, connectionPool, user_id)
 {
-	log_line(null, null, "fetching " + url);
 	let response = await fetch(url);
 	if (response.ok)
 	{
@@ -140,6 +170,13 @@ async function uploadMediaChunked(buffer, mimeType, T)
 
 }
 
+
+/**
+ * @param {any} b64data
+ * @param {Twit} T
+ * @param {{ query: (arg0: string, arg1: any[]) => [any, any] | PromiseLike<[any, any]>; }} connectionPool
+ * @param {string} user_id
+ */
 async function uploadMedia(b64data, T, connectionPool, user_id)
 {
 	var {data, resp} = await T.post('media/upload', { media_data: b64data });
@@ -230,7 +267,10 @@ async function uploadMedia(b64data, T, connectionPool, user_id)
 // but this function will find our image tags 
 // full credit to BooDooPerson - https://twitter.com/BooDooPerson/status/683450163608817664
 // Reverse the string, check with our fucked up regex, return null or reverse matches back
-var matchBrackets = function(text) {
+/**
+ * @param {string} text
+ */
+function matchBrackets(text) {
   
   // simple utility function
   function reverseString(s) {
@@ -252,6 +292,9 @@ var matchBrackets = function(text) {
 
 
 //see matchBrackets for why this is like this
+/**
+ * @param {string} text
+ */
 function removeBrackets (text) {
   
   // simple utility function
@@ -267,7 +310,14 @@ function removeBrackets (text) {
 }
 
 
-function render_media_tag(match, T, connectionPool, user_id)
+/**
+ * @param {string} match
+ * @param {Twit} T
+ * @param {any} connectionPool
+ * @param {any} svgConverter
+ * @param {string} user_id
+ */
+function render_media_tag(match, T, connectionPool, svgConverter, user_id)
 {
 	var unescapeOpenBracket = /\\{/g;
 	var unescapeCloseBracket = /\\}/g;
@@ -276,7 +326,7 @@ function render_media_tag(match, T, connectionPool, user_id)
 
 	if (match.indexOf("svg ") === 1)
 	{
-		return generate_svg(match.substr(5,match.length - 6), T, connectionPool, user_id);
+		return generate_svg(match.substr(5,match.length - 6), T, connectionPool, svgConverter, user_id);
 	}
 	else if (match.indexOf("img ") === 1)
 	{
@@ -288,7 +338,16 @@ function render_media_tag(match, T, connectionPool, user_id)
 	}
 }
 
-async function recurse_retry(connectionPool, origin, tries_remaining, processedGrammar, T, result, in_reply_to)
+/**
+ * @param {{ query: (arg0: string, arg1: any[]) => [any, any] | PromiseLike<[any, any]>; }} connectionPool
+ * @param {any} svgConverter
+ * @param {string | number} origin
+ * @param {number} tries_remaining
+ * @param {Twit} T
+ * @param {{ [x: string]: any; }} result
+ * @param {{ [x: string]: any; }} [in_reply_to]
+ */
+async function recurse_retry(connectionPool, svgConverter, origin, tries_remaining, processedGrammar, T, result, in_reply_to)
 {
 	if (tries_remaining <= 0)
 	{
@@ -318,14 +377,14 @@ async function recurse_retry(connectionPool, origin, tries_remaining, processedG
 			let start_time_for_processing_tags = process.hrtime();
 			try 
 			{
-				var media_promises = media_tags.map(tag => render_media_tag(tag, T, connectionPool, result["user_id"]));
+				var media_promises = media_tags.map(tag => render_media_tag(tag, T, connectionPool, svgConverter, result["user_id"]));
 				var medias = await Promise.all(media_promises);
 				params.media_ids = medias;
 			}
 			catch (err)
 			{
 				log_line_error(result["screen_name"], result["user_id"], "failed rendering and uploading media", err);
-				recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+				recurse_retry(connectionPool, svgConverter, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				return;
 			}
 			let processing_time = process.hrtime(start_time_for_processing_tags);
@@ -500,8 +559,13 @@ async function recurse_retry(connectionPool, origin, tries_remaining, processedG
 };
 	
 
-
-async function tweet_for_account(connectionPool, user_id)
+/**
+ * 
+ * @param {*} connectionPool 
+ * @param {*} svgConverter 
+ * @param {string} user_id 
+ */
+async function tweet_for_account(connectionPool, svgConverter, user_id)
 {
 	let [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, user_id, tracery from `traceries` where user_id = ?', [user_id]);
 
@@ -521,7 +585,7 @@ async function tweet_for_account(connectionPool, user_id)
 
 	try
 	{
-		await recurse_retry(connectionPool, "#origin#", 5, processedGrammar, T, tracery_result[0]);
+		await recurse_retry(connectionPool, svgConverter, "#origin#", 5, processedGrammar, T, tracery_result[0]);
 	}
 	catch (e)
 	{
@@ -541,7 +605,14 @@ async function tweet_for_account(connectionPool, user_id)
 	}
 }
 
-async function reply_for_account(connectionPool, user_id)
+
+/**
+ * 
+ * @param {mysql.Pool} connectionPool 
+ * @param {*} svgConverter 
+ * @param {string} user_id 
+ */
+async function reply_for_account(connectionPool, svgConverter, user_id)
 {
 	
 	if (Math.random() < 0.05)
@@ -666,7 +737,7 @@ async function reply_for_account(connectionPool, user_id)
 				{
 					if (Math.random() < 0.95)
 					{
-						await recurse_retry(connectionPool, origin, 5, processedGrammar, T, tracery_result[0], mention);
+						await recurse_retry(connectionPool, svgConverter, origin, 5, processedGrammar, T, tracery_result[0], mention);
 					}
 				}
 
@@ -698,7 +769,6 @@ async function reply_for_account(connectionPool, user_id)
 async function run()
 {
 	log_line_single("starting");
-	const mysql      = require('mysql2/promise');
 	try
 	{
 		var connectionPool = await mysql.createPool({
@@ -716,6 +786,7 @@ async function run()
 		return;
 	}	
 
+
 	if (!replies && !isNaN(frequency))
 	{
 		var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `frequency` = ? AND IFNULL(`blocked_status`, 0) = 0  AND (`last_error_code` IS NULL OR `last_error_code` NOT IN (64, 89, 326))', [frequency]);
@@ -727,10 +798,11 @@ async function run()
 			throw(new Error("Database connection error"));
 		}
 
+		const svgConverter = createConverter();
 		for (const result of results) {
 			try
 			{
-				await tweet_for_account(connectionPool, result['user_id']);
+				await tweet_for_account(connectionPool, svgConverter, result['user_id']);
 			}
 			catch (e)
 			{
@@ -738,6 +810,7 @@ async function run()
 				Raven.captureException(e, { user: { id : result['user_id'] } });
 			}
 		}
+		await svgConverter.destroy();
 
 	}
 	else if (replies)
@@ -754,10 +827,11 @@ async function run()
 		}
 
 
+		const svgConverter = createConverter();
 		for (const result of results) {
 			try
 			{
-				await reply_for_account(connectionPool, result['user_id']);
+				await reply_for_account(connectionPool, svgConverter, result['user_id']);
 			}
 			catch (e)
 			{
@@ -765,6 +839,7 @@ async function run()
 				Raven.captureException(e, { user: { id : result['user_id'] } });
 			}
 		}
+		await svgConverter.destroy();
 
 		
 	}

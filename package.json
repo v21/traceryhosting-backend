@@ -9,16 +9,18 @@
   "author": "v21",
   "license": "ISC",
   "dependencies": {
+    "convert-svg-to-png": "^0.5.0",
     "git-rev-sync": "^3.0.1",
     "heapdump": "^0.3.15",
     "mysql": "^2.18.1",
     "mysql2": "^2.3.0",
-    "node-fetch": "^2.6.5",
+    "node-fetch": "^3.0.0",
     "pn": "^1.1.0",
     "raven": "^2.6.4",
-    "svg2png": "github:v21/svg2png",
     "tracery-grammar": "^2.7.4",
     "twit": "^2.2.11",
-    "underscore": "^1.13.1"
+    "underscore": "^1.13.1",
+    "bufferutil": "^4.0.4",
+    "utf-8-validate": "^5.0.6"
   }
 }
