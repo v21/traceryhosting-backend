@@ -23,7 +23,7 @@ var Twit = require('twit');
 var fs = require('fs');
 var heapdump = require('heapdump');
 var util = require("util");
-const fetch = import('node-fetch');
+const fetch = require('node-fetch');
 
 const mysql = require('mysql2/promise');
 
