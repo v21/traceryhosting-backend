@@ -439,15 +439,15 @@ async function recurse_retry(connectionPool, svgConverter, origin, tries_remaini
 
 				if (err["code"] == 186) // too long
 				{
-					recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+					recurse_retry(connectionPool, svgConverter, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				}
 				else if (err['code'] == 187) //duplicate tweet
 				{
-					recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+					recurse_retry(connectionPool, svgConverter, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				}
 				else if (err['code'] == 170) //empty tweet
 				{
-					recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+					recurse_retry(connectionPool, svgConverter, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				}
 				else if (err['code'] == 64)  
 				{
@@ -555,7 +555,7 @@ async function recurse_retry(connectionPool, svgConverter, origin, tries_remaini
 				tracery: result['tracery']
 			}
 		});
-		recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+		recurse_retry(connectionPool, svgConverter, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 	}
 	
 
