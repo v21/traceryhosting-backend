@@ -2,10 +2,13 @@ CREATE DATABASE `traceryhosting` DEFAULT CHARSET=utf8mb4 ;
 USE traceryhosting;
 
 CREATE USER `tracery_node`@`localhost` IDENTIFIED BY 'tracery_test';
-GRANT SELECT, UPDATE (last_error_code, last_reply) ON `traceryhosting`.`traceries` TO `tracery_node`@`localhost` IDENTIFIED BY 'tracery_test';
+GRANT SELECT, UPDATE (last_error_code, last_reply) ON `traceryhosting`.`traceries` TO `tracery_node`@`localhost`;
 
 CREATE USER `tracery_php`@`localhost` IDENTIFIED BY 'tracery_test';
-GRANT INSERT, SELECT, UPDATE ON `traceryhosting`.`traceries` TO `tracery_php`@`localhost` IDENTIFIED BY 'tracery_test';
+GRANT INSERT, SELECT, UPDATE ON `traceryhosting`.`traceries` TO `tracery_php`@`localhost`;
+
+CREATE USER `tracery_spam`@`localhost` IDENTIFIED BY 'tracery_test';
+GRANT SELECT, UPDATE (blocked_status) ON `traceryhosting`.`traceries` TO `tracery_spam`@`localhost`;
 
 
 CREATE TABLE `traceries` (
