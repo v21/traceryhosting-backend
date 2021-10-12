@@ -377,8 +377,11 @@ async function recurse_retry(connectionPool, svgConverter, origin, tries_remaini
 			let start_time_for_processing_tags = process.hrtime();
 			try 
 			{
-				var media_promises = media_tags.map(tag => render_media_tag(tag, T, connectionPool, svgConverter, result["user_id"]));
-				var medias = await Promise.all(media_promises);
+				var medias = [];
+				for (const tag of media_tags) {
+					var id = await render_media_tag(tag, T, connectionPool, svgConverter, result["user_id"]);
+					medias.push(id);
+				}
 				params.media_ids = medias;
 			}
 			catch (err)
