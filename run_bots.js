@@ -1,11 +1,5 @@
 // // @ts-check
 
-var git = require('git-rev-sync');
-var Raven = require('raven');
-Raven.config(process.env.SENTRY_DSN, {
-	environment: process.env.ENVIRONMENT_NAME,
-	release: git.long()
-}).install();
 
 const { createConverter } = require('convert-svg-to-png');
 
@@ -118,17 +112,6 @@ async function set_last_error(connectionPool, user_id, error_code)
 	catch (e)
 	{
 		log_line_error(user_id, "failed to update db for last_error_code to " + error_code, e);
-		Raven.captureException(e, 
-		{
-			user: 
-			{
-				id : user_id
-			},
-			extra:
-			{	
-				error_code : error_code
-			}
-		});
 		return;
 	}
 }
@@ -200,19 +183,6 @@ async function uploadMedia(b64data, T, connectionPool, user_id)
 		}
 		else {
 			var err = new Error("Couldn't upload media, got response code " + data.errors[0].code);
-			Raven.captureException(err,
-				{
-					user: 
-					{
-						id : user_id
-					},
-					extra:
-					{
-						response : resp,
-						data : data
-					}
-				});
-
 			throw (err);
 		}
 	}
@@ -242,19 +212,6 @@ async function uploadMedia(b64data, T, connectionPool, user_id)
 			var err = new Error("Couldn't upload media, got response status " + resp.statusCode + " (" + resp.statusMessage + ")");
 
 			log_line_error(null, null, err, data);
-			Raven.captureException(err,
-				{
-					user: 
-					{
-						id : user_id
-					},
-					extra:
-					{
-						response : resp,
-						data : data
-					}
-				});
-
 			throw (err);
 		}
 	}
@@ -394,28 +351,8 @@ async function recurse_retry(connectionPool, svgConverter, origin, tries_remaini
 			if (processing_time[0] > 5) {
 				log_line(result["screen_name"], result["user_id"], `processing media tags took ${processing_time[0]}:${processing_time[1]}`);
 			}
-			if (processing_time[0] > 30) {
-				Raven.captureMessage("Processing media tags took over 30 secs", 
-				{
-					user: 
-					{
-						username: result['screen_name'],
-						id : result['user_id']
-					},
-					extra:
-					{
-						processing_time: processing_time,
-						media_tags : media_tags,
-						tweet : tweet,
-						params : params,
-						tries_remaining: tries_remaining,
-						mention: in_reply_to,
-						tracery: result['tracery'],
-						response : resp,
-						data : data
-					}
-				});
-					
+			if (processing_time[0] > 60) {
+				log_line_error(result["screen_name"], result["user_id"], `processing media tags took ${processing_time[0]}:${processing_time[1]}`, err);
 			}
 		}
 		log_line(result["screen_name"], result["user_id"], "tweeting", params);
@@ -472,68 +409,17 @@ async function recurse_retry(connectionPool, svgConverter, origin, tries_remaini
 				else
 				{
 					log_line_error(result["screen_name"], result["user_id"], "failed to tweet for a more mysterious reason (" + err["code"] + ")", params);
-					Raven.captureMessage("Failed to tweet, Twiter gave err " + err['code'], 
-					{
-						user: 
-						{
-							username: result['screen_name'],
-							id : result['user_id']
-						},
-						extra:
-						{
-							params : params,
-							tries_remaining: tries_remaining,
-							mention: in_reply_to,
-							tracery: result['tracery'],
-							response : resp,
-							data : data
-						}
-					});
 				}
 			}
 			else if (resp.statusCode != 200)
 			{
 				log_line_error(result["screen_name"], result["user_id"], "failed to tweet, http status code " + resp.statusCode + ".", params);
-				Raven.captureMessage("Failed to tweet, Twiter gave http status code " + resp.statusCode, 
-				{
-					user: 
-					{
-						username: result['screen_name'],
-						id : result['user_id']
-					},
-					extra:
-					{
-						params : params,
-						tries_remaining: tries_remaining,
-						mention: in_reply_to,
-						tracery: result['tracery'],
-						response : resp,
-						data : data
-					}
-				});
 			}
 			
 		}
 		catch (err)
 		{
 			log_line_error(result["screen_name"], result["user_id"], "failed to tweet " + util.inspect(params), err);
-			Raven.captureException(err, 
-			{
-				user: 
-				{
-					username: result['screen_name'],
-					id : result['user_id']
-				},
-				extra:
-				{
-					params : params,
-					tries_remaining: tries_remaining,
-					mention: in_reply_to,
-					tracery: result['tracery'],
-					response : resp,
-					data : data
-				}
-			});
 			throw (err);
 		}
 				
@@ -541,20 +427,6 @@ async function recurse_retry(connectionPool, svgConverter, origin, tries_remaini
 	catch (e)
 	{
 		log_line_error(result["screen_name"], result["user_id"], "failed to tweet ", err);
-		Raven.captureException(e, 
-		{
-			user: 
-			{
-				username: result['screen_name'],
-				id : result['user_id']
-			},
-			extra:
-			{
-				tries_remaining: tries_remaining,
-				mention: in_reply_to,
-				tracery: result['tracery']
-			}
-		});
 		recurse_retry(connectionPool, svgConverter, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 	}
 	
@@ -593,18 +465,6 @@ async function tweet_for_account(connectionPool, svgConverter, user_id)
 	catch (e)
 	{
 		log_line_error(tracery_result[0]['screen_name'], user_id, "failed to tweet ", e);
-		Raven.captureException(e, 
-		{
-			user: 
-			{
-				username: tracery_result[0]['screen_name'],
-				id : user_id
-			},
-			extra:
-			{
-				tracery: tracery_result[0]['tracery']
-			}
-		});
 	}
 }
 
@@ -643,20 +503,6 @@ async function reply_for_account(connectionPool, svgConverter, user_id)
 	catch (e)
 	{
 		log_line_error(tracery_result[0]['screen_name'], user_id, "failed to parse tracery for reply ", e);
-		Raven.captureException(e, 
-		{
-			user: 
-			{
-				username: tracery_result[0]['screen_name'],
-				id : user_id
-			},
-			extra:
-			{
-				tracery: tracery_result[0]['tracery'],
-				reply_rules : tracery_result[0]["reply_rules"],
-				last_reply : tracery_result[0]["last_reply"]
-			}
-		});
 	}
 
 	try
@@ -666,20 +512,6 @@ async function reply_for_account(connectionPool, svgConverter, user_id)
 	catch(e)
 	{
 		log_line_error(tracery_result[0]['screen_name'], user_id, "failed to parse reply_rules ", e);
-		Raven.captureException(e, 
-		{
-			user: 
-			{
-				username: tracery_result[0]['screen_name'],
-				id : user_id
-			},
-			extra:
-			{
-				tracery: tracery_result[0]['tracery'],
-				reply_rules : tracery_result[0]["reply_rules"],
-				last_reply : tracery_result[0]["last_reply"]
-			}
-		});
 	}
 
 
@@ -712,20 +544,6 @@ async function reply_for_account(connectionPool, svgConverter, user_id)
 		catch (e)
 		{
 			log_line_error(tracery_result[0]['screen_name'], user_id, "failed to update db for last_reply to " + data[0]["id_str"], e);
-			Raven.captureException(e, 
-			{
-				user: 
-				{
-					username: tracery_result[0]['screen_name'],
-					id : user_id
-				},
-				extra:
-				{
-					tracery: tracery_result[0]['tracery'],
-					reply_rules : tracery_result[0]["reply_rules"],
-					last_reply : tracery_result[0]["last_reply"]
-				}
-			});
 			return;
 		}
 
@@ -748,19 +566,6 @@ async function reply_for_account(connectionPool, svgConverter, user_id)
 			catch (e)
 			{
 				log_line_error(tracery_result[0]['screen_name'], user_id, "failed to reply ", e);
-				Raven.captureException(e, 
-				{
-					user: 
-					{
-						username: tracery_result[0]['screen_name'],
-						id : user_id
-					},
-					extra:
-					{
-						tracery: tracery_result[0]['tracery'],
-						mention: mention
-					}
-				});
 			}
 		}
 	}
@@ -809,8 +614,7 @@ async function run()
 			}
 			catch (e)
 			{
-				log_line_single_error("failed to tweet for " + result['user_id']);
-				Raven.captureException(e, { user: { id : result['user_id'] } });
+				log_line_single_error("failed to tweet for " + result['user_id'] + " : " + e.message);
 			}
 		}
 		await svgConverter.destroy();
@@ -826,7 +630,6 @@ async function run()
 		catch(e)
 		{
 			log_line_single_error("failed to query db for replies");
-			Raven.captureException(e);
 		}
 
 
@@ -838,8 +641,7 @@ async function run()
 			}
 			catch (e)
 			{
-				log_line_single_error("failed to reply for " + result['user_id']);
-				Raven.captureException(e, { user: { id : result['user_id'] } });
+				log_line_single_error("failed to reply for " + result['user_id'] + " : " + e.message);
 			}
 		}
 		await svgConverter.destroy();
