@@ -1,117 +1,14 @@
 // @ts-check
 
-const render_svg = require("render-svgs-with-puppeteer");
-
-var arg0 = process.argv[2];
-var replies = (arg0 === "replies");
-var frequency = parseInt(arg0, 10);
-//obv only one of these will be true
-
-const { pid } = require('process');
-
-var tracery = require('tracery-grammar');
-var _ = require('underscore');
-
+const tracery = require('tracery-grammar');
 const { TwitterApi, ApiRequestError, ApiResponseError, EApiV1ErrorCode } = require('twitter-api-v2');
-
-var fs = require('fs');
-var heapdump = require('heapdump');
-var util = require("util");
-const fetch = require('node-fetch');
-
 const mysql = require('mysql2/promise');
 
+const render_svg = require("render-svgs-with-puppeteer");
+const fetch = require('node-fetch');
 const FileType = require('file-type');
 
-function log_line_single(message) {
-	console.log(
-		new Date().toISOString(),
-		pid,
-		"arg:" + arg0,
-		"INFO",
-		message
-	);
-}
-
-/**
- * @param {any} screen_name
- * @param {string} userid
- * @param {string} [message]
- * @param {object} [params]
- */
-function log_line(screen_name, userid, message, params) {
-	if (params) {
-		var paramString = util.inspect(params, { breakLength: Infinity, maxArrayLength: 5 });
-
-		paramString = paramString.replace("\n", "\\n");
-	}
-	console.log(
-		new Date().toISOString(),
-		pid,
-		"arg:" + arg0,
-		"INFO",
-		screen_name,
-		"(" + userid + ")",
-		message,
-		paramString ? paramString : ""
-	);
-}
-
-/**
- * @param {string} message
- */
-function log_line_single_error(message) {
-	console.error(
-		new Date().toISOString(),
-		pid,
-		"arg:" + arg0,
-		"ERROR",
-		message
-	);
-}
-
-/**
- * @param {any} screen_name
- * @param {string} userid
- * @param {string | Error} message
- * @param {{}} [params]
- */
-function log_line_error(screen_name, userid, message, params) {
-	if (params) {
-		var paramString = util.inspect(params, { breakLength: Infinity, maxArrayLength: 5 });
-
-		paramString = paramString.replace("\n", "\\n");
-	}
-	console.error(
-		new Date().toISOString(),
-		pid,
-		"arg:" + arg0,
-		"ERROR",
-		screen_name,
-		"(" + userid + ")",
-		message,
-		paramString ? paramString : ""
-	);
-}
-
-/**
- * @param {{ query: (arg0: string, arg1: any[]) => PromiseLike<[any, any]> | [any, any]; }} connectionPool
- * @param {any} user_id
- * @param {string | number} error_code
- */
-async function set_last_error(connectionPool, user_id, error_code) {
-	try {
-		let [results, fields] = await connectionPool.query("UPDATE `traceries` SET `last_error_code` = ? WHERE `user_id` = ?",
-			[error_code, user_id]);
-
-		log_line(user_id, " set last_error_code to " + error_code);
-	}
-	catch (e) {
-		log_line_error(user_id, "failed to update db for last_error_code to " + error_code, e);
-		return;
-	}
-}
-
+const { log_line, log_line_error, set_last_error, log_line_single, log_line_single_error } = require("./logging");
 
 
 /**
@@ -146,13 +43,6 @@ async function fetch_img(url, T, connectionPool, user_id) {
 	}
 }
 
-async function uploadMediaChunked(buffer, mimeType, T) {
-	//todo see https://github.com/ttezel/twit/blob/master/tests/rest_chunked_upload.js#L20
-	//get mimeType with https://www.npmjs.com/package/file-type
-
-}
-
-
 
 /**
  * @param {Buffer} buffer
@@ -165,39 +55,42 @@ async function uploadMedia(buffer, T, connectionPool, user_id) {
 		const mimeType = (await FileType.fromBuffer(buffer)).mime;
 		const mediaId = await T.v1.uploadMedia(buffer, { type: mimeType });
 
-		log_line(null, null, "uploaded media", mediaId);
+		log_line(null, user_id, "uploaded media", mediaId);
 		return mediaId;
 	}
 	catch (e) {
 		if (e instanceof ApiRequestError) {
-			log_line_error(null, null, "Can't upload media, API request error", e.requestError);
+			log_line_error(null, user_id, "Can't upload media, API request error", e.requestError);
+			throw (e);
 		}
 		else if (e instanceof ApiResponseError) {
+			if ("code" in e.errors[0]) {
+				await set_last_error(connectionPool, user_id, e.errors[0].code);
+			}
+
 			if (e.code !== 200) {
 				await set_last_error(connectionPool, user_id, e.code);
 				if (e.code == 401) {
-					log_line_error(null, null, "Can't upload media, Not authorized", e.data);
+					log_line_error(null, user_id, "Can't upload media, Not authorized", e.data);
 					throw (new Error("Can't upload media, Not authorized"));
 				}
 				if (e.code == 403) {
-					log_line_error(null, null, "Can't upload media, Forbidden", e.data);
+					log_line_error(null, user_id, "Can't upload media, Forbidden", e.data);
 					throw (new Error("Can't upload media, Forbidden"));
 				}
 				if (e.code == 400) {
-					log_line_error(null, null, "Can't upload media, Bad Request", e.data);
+					log_line_error(null, user_id, "Can't upload media, Bad Request", e.data);
 					throw (new Error("Can't upload media, 400 Bad Request"));
 				}
 				else {
 					var err = new Error("Couldn't upload media, got response status " + e.code);
-
-					log_line_error(null, null, err, e.data);
+					log_line_error(null, user_id, err, e.data);
 					throw (err);
 				}
 			}
 			else {
-				if ("code" in e.errors[0]) {
-					await set_last_error(connectionPool, user_id, e.errors[0].code);
-				}
+				log_line_error(null, user_id, "Can't upload media, API response error", e);
+				throw (e);
 			}
 		}
 	}
@@ -214,6 +107,9 @@ async function uploadMedia(buffer, T, connectionPool, user_id) {
 function matchBrackets(text) {
 
 	// simple utility function
+	/**
+	 * @param {string} s
+	 */
 	function reverseString(s) {
 		return s.split('').reverse().join('');
 	}
@@ -239,7 +135,7 @@ function matchBrackets(text) {
 function removeBrackets(text) {
 
 	// simple utility function
-	var reverseString = function (s) {
+	var reverseString = function (/** @type {string} */ s) {
 		return s.split('').reverse().join('');
 	}
 
@@ -276,6 +172,16 @@ function render_media_tag(match, T, connectionPool, user_id) {
 }
 
 
+/**
+ * @param {import("twitter-api-v2").TwitterApiReadWrite} T
+ * @param {{ status?: any; }} params
+ * @param {{ [x: string]: string; }} result
+ * @param {mysql.Pool} connectionPool
+ * @param {string} origin
+ * @param {number} tries_remaining
+ * @param {any} processedGrammar
+ * @param {{ [x: string]: any; }} in_reply_to
+ */
 async function doTweet(T, params, result, connectionPool, origin, tries_remaining, processedGrammar, in_reply_to) {
 	try {
 		log_line(result["screen_name"], result["user_id"], "tweeting", params);
@@ -283,7 +189,7 @@ async function doTweet(T, params, result, connectionPool, origin, tries_remainin
 	}
 	catch (e) {
 		if (e instanceof ApiRequestError) {
-			log_line_error(null, null, "Can't tweet, API request error", e.requestError);
+			log_line_error(result["screen_name"], result["user_id"], "Can't tweet, API request error", e.requestError);
 		}
 		else if (e instanceof ApiResponseError) {
 
@@ -322,7 +228,7 @@ async function doTweet(T, params, result, connectionPool, origin, tries_remainin
 
 		}
 		else {
-			log_line_error(null, null, "!!! Can't tweet, internal error", e);
+			log_line_error(result["screen_name"], result["user_id"], "!!! Can't tweet, internal error", e);
 		}
 	}
 }
@@ -494,8 +400,6 @@ async function reply_for_account(connectionPool, user_id) {
 		try {
 			let [results, fields] = await connectionPool.query("UPDATE `traceries` SET `last_reply` = ? WHERE `user_id` = ?",
 				[mentions[0]["id_str"], tracery_result[0]["user_id"]]);
-
-
 			log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " set last_reply to " + mentions[0]["id_str"]);
 		}
 		catch (e) {
@@ -508,7 +412,7 @@ async function reply_for_account(connectionPool, user_id) {
 			try {
 				log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " replying to ", mention["text"]);
 
-				var origin = _.find(reply_rules, function (origin, rule) { return new RegExp(rule).test(mention["text"]); });
+				var origin = reply_rules.find(function (origin, rule) { return new RegExp(rule).test(mention["text"]); });
 				if (typeof origin != "undefined") {
 					if (Math.random() < 0.95) {
 						await recurse_retry(connectionPool, origin, 5, processedGrammar, T, tracery_result[0], mention);
@@ -528,6 +432,12 @@ async function reply_for_account(connectionPool, user_id) {
 
 async function run() {
 	log_line_single("starting");
+
+	var arg0 = process.argv[2];
+	var replies = (arg0 === "replies");
+	var frequency = parseInt(arg0, 10);
+	//obv only one of these will be true
+
 	try {
 		var connectionPool = await mysql.createPool({
 			connectionLimit: 10,
@@ -542,7 +452,6 @@ async function run() {
 		throw (e);
 		return;
 	}
-
 
 	if (!replies && !isNaN(frequency)) {
 		var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `frequency` = ? AND IFNULL(`blocked_status`, 0) = 0  AND (`last_error_code` IS NULL OR `last_error_code` NOT IN (64, 89, 326))', [frequency]);
