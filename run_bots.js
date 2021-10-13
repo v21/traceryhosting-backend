@@ -1,18 +1,18 @@
-// // @ts-check
+// @ts-check
 
-
-const { createConverter } = require('convert-svg-to-png');
+const render_svg = require("render-svgs-with-puppeteer");
 
 var arg0 = process.argv[2];
 var replies = (arg0 === "replies");
 var frequency = parseInt(arg0, 10);
 //obv only one of these will be true
 
+const { pid } = require('process');
 
 var tracery = require('tracery-grammar');
 var _ = require('underscore');
 
-var Twit = require('twit');
+const { TwitterApi, ApiRequestError, ApiResponseError, EApiV1ErrorCode } = require('twitter-api-v2');
 
 var fs = require('fs');
 var heapdump = require('heapdump');
@@ -21,11 +21,13 @@ const fetch = require('node-fetch');
 
 const mysql = require('mysql2/promise');
 
+const FileType = require('file-type');
 
 function log_line_single(message)
 {
 	console.log(
 		new Date().toISOString(),
+		pid,
 		"arg:" + arg0,
 		"INFO",
 		message
@@ -48,6 +50,7 @@ function log_line(screen_name, userid, message, params)
 	}
 	console.log(
 		new Date().toISOString(),
+		pid,
 		"arg:" + arg0,
 		"INFO",
 		screen_name,
@@ -64,6 +67,7 @@ function log_line_single_error(message)
 {
 	console.error(
 		new Date().toISOString(),
+		pid,
 		"arg:" + arg0,
 		"ERROR",
 		message
@@ -86,6 +90,7 @@ function log_line_error(screen_name, userid, message, params)
 	}
 	console.error(
 		new Date().toISOString(),
+		pid,
 		"arg:" + arg0,
 		"ERROR",
 		screen_name,
@@ -116,20 +121,28 @@ async function set_last_error(connectionPool, user_id, error_code)
 	}
 }
 
+
+
 /**
  * @param {string} svg_text
- * @param {Twit} T
- * @param {any} connectionPool
- * @param {any} svgConverter
+ * @param {import("twitter-api-v2").TwitterApiReadWrite} T
+ * @param {mysql.Pool} connectionPool
  * @param {string} user_id
  */
-async function generate_svg(svg_text, T, connectionPool, svgConverter, user_id)
+async function generate_svg(svg_text, T, connectionPool, user_id)
 {
-	const data = await svgConverter.convert(svg_text);
-	let media_id = await uploadMedia(data.toString('base64'), T, connectionPool, user_id);
+	const data = await render_svg.convert(svg_text);
+	// @ts-ignore
+	let media_id = await uploadMedia(data, T, connectionPool, user_id);
 	return media_id;
 }
 
+/**
+ * @param {string} url
+ * @param {import("twitter-api-v2").TwitterApiReadWrite} T
+ * @param {mysql.Pool} connectionPool
+ * @param {string} user_id
+ */
 async function fetch_img(url, T, connectionPool, user_id)
 {
 	let response = await fetch(url);
@@ -137,7 +150,7 @@ async function fetch_img(url, T, connectionPool, user_id)
 	{
 		log_line(null, null, "fetched " + url);
 		let buffer = await response.buffer();
-		let media_id = await uploadMedia(buffer.toString('base64'), T, connectionPool, user_id); //doesn't allow gifs/movies
+		let media_id = await uploadMedia(buffer, T, connectionPool, user_id); //doesn't allow gifs/movies
 		return media_id;
 	}
 	else
@@ -154,70 +167,60 @@ async function uploadMediaChunked(buffer, mimeType, T)
 }
 
 
+
 /**
- * @param {any} b64data
- * @param {Twit} T
- * @param {{ query: (arg0: string, arg1: any[]) => [any, any] | PromiseLike<[any, any]>; }} connectionPool
+ * @param {Buffer} buffer
+ * @param {import("twitter-api-v2").TwitterApiReadWrite} T
+ * @param {mysql.Pool} connectionPool
  * @param {string} user_id
  */
-async function uploadMedia(b64data, T, connectionPool, user_id)
+async function uploadMedia(buffer, T, connectionPool, user_id)
 {
-	var {data, resp} = await T.post('media/upload', { media_data: b64data });
+	try {
+		const mimeType = (await FileType.fromBuffer(buffer)).mime;
+		const mediaId = await T.v1.uploadMedia(buffer, { type: mimeType});
 
-	if (data.errors && data.errors[0].code)
-	{
-		await set_last_error(connectionPool, user_id, data.errors[0].code);
+		log_line(null, null, "uploaded media", mediaId);
+		return mediaId;
 	}
-	else if (!resp || resp.statusCode != 200)
-	{
-		await set_last_error(connectionPool, user_id, resp.statusCode);
-	}
-	
-
-	if (data.errors)
-	{
-		if (data.errors[0].code == 64) // suspended
-		{
-			log_line_error(null, null, "Can't upload media, suspended", data);
-			throw (new Error ("Can't upload media, suspended"));
+	catch (e) {
+		if (e instanceof ApiRequestError) {
+			log_line_error(null, null, "Can't upload media, API request error", e.requestError);
 		}
-		else {
-			var err = new Error("Couldn't upload media, got response code " + data.errors[0].code);
-			throw (err);
-		}
-	}
-	else if (!resp || resp.statusCode != 200)
-	{
-
-		if (resp.statusCode) {
-			await set_last_error(connectionPool, user_id, resp.statusCode);
-		}
-		if (resp.statusCode == 401)
-		{
-			log_line_error(null, null, "Can't upload media, Not authorized", data);
-			throw (new Error ("Can't upload media, Not authorized"));
-		}
-		if (resp.statusCode == 403)
-		{
-			log_line_error(null, null, "Can't upload media, Forbidden", data);
-			throw (new Error ("Can't upload media, Forbidden"));
-		}
-		if (resp.statusCode == 400)
-		{
-			log_line_error(null, null, "Can't upload media, Bad Request", data);
-			throw (new Error ("Can't upload media, 400 Bad Request"));
-		}
-		else
-		{
-			var err = new Error("Couldn't upload media, got response status " + resp.statusCode + " (" + resp.statusMessage + ")");
-
-			log_line_error(null, null, err, data);
-			throw (err);
+		else if (e instanceof ApiResponseError) {
+			if (e.code !== 200) {
+				await set_last_error(connectionPool, user_id, e.code);
+				if (e.code == 401)
+				{
+					log_line_error(null, null, "Can't upload media, Not authorized", e.data);
+					throw (new Error ("Can't upload media, Not authorized"));
+				}
+				if (e.code == 403)
+				{
+					log_line_error(null, null, "Can't upload media, Forbidden", e.data);
+					throw (new Error ("Can't upload media, Forbidden"));
+				}
+				if (e.code == 400)
+				{
+					log_line_error(null, null, "Can't upload media, Bad Request", e.data);
+					throw (new Error ("Can't upload media, 400 Bad Request"));
+				}
+				else
+				{
+					var err = new Error("Couldn't upload media, got response status " + e.code);
+		
+					log_line_error(null, null, err, e.data);
+					throw (err);
+				}
+			}
+			else {
+				if ("code" in e.errors[0]){
+					await set_last_error(connectionPool, user_id, e.errors[0].code);
+				}
+			}
 		}
 	}
 
-	log_line(null, null, "uploaded media", data);
-	return data.media_id_string;
 }
 
 // this is much more complex than i thought it would be
@@ -267,14 +270,14 @@ function removeBrackets (text) {
 }
 
 
+
 /**
  * @param {string} match
- * @param {Twit} T
- * @param {any} connectionPool
- * @param {any} svgConverter
+ * @param {import("twitter-api-v2").TwitterApiReadWrite} T
+ * @param {mysql.Pool} connectionPool
  * @param {string} user_id
  */
-function render_media_tag(match, T, connectionPool, svgConverter, user_id)
+function render_media_tag(match, T, connectionPool, user_id)
 {
 	var unescapeOpenBracket = /\\{/g;
 	var unescapeCloseBracket = /\\}/g;
@@ -283,7 +286,7 @@ function render_media_tag(match, T, connectionPool, svgConverter, user_id)
 
 	if (match.indexOf("svg ") === 1)
 	{
-		return generate_svg(match.substr(5,match.length - 6), T, connectionPool, svgConverter, user_id);
+		return generate_svg(match.substr(5,match.length - 6), T, connectionPool, user_id);
 	}
 	else if (match.indexOf("img ") === 1)
 	{
@@ -295,16 +298,68 @@ function render_media_tag(match, T, connectionPool, svgConverter, user_id)
 	}
 }
 
+
+async function doTweet(T, params, result, connectionPool, origin, tries_remaining, processedGrammar, in_reply_to) {
+	try {
+		log_line(result["screen_name"], result["user_id"], "tweeting", params);
+		const tweet = await T.v1.tweet(params.status, params);
+	}
+	catch (e) {
+		if (e instanceof ApiRequestError) {
+			log_line_error(null, null, "Can't tweet, API request error", e.requestError);
+		}
+		else if (e instanceof ApiResponseError) {
+			
+				if ('code' in e.errors[0]) {
+					await set_last_error(connectionPool, result["user_id"], e.errors[0].code);
+				
+				if (e.hasErrorCode(EApiV1ErrorCode.TweetTextTooLong)) {
+					await recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+				}
+				else if (e.hasErrorCode(EApiV1ErrorCode.DuplicatedTweet)) {
+					await recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+				}
+				else if (e.hasErrorCode(170)) { //empty tweet
+					await recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+				}
+				else if (e.hasErrorCode(EApiV1ErrorCode.YouAreSuspended)) {
+					log_line(result["screen_name"], result["user_id"], "suspended (64)", params);
+				}
+				else if (e.hasErrorCode(EApiV1ErrorCode.InvalidOrExpiredToken)) {
+					log_line(result["screen_name"], result["user_id"], "invalid permissions (89)", params);
+				}
+				else if (e.hasErrorCode(EApiV1ErrorCode.AccountLocked)) {
+					log_line(result["screen_name"], result["user_id"], "temp locked for spam (326)", params);
+				}
+				else if (e.hasErrorCode(EApiV1ErrorCode.RequestLooksLikeSpam)) {
+					log_line(result["screen_name"], result["user_id"], "flagged as bot (226)", params);
+				}
+				else {
+					log_line_error(result["screen_name"], result["user_id"], "failed to tweet for a more mysterious reason (" + e.code + ")", params);
+				}
+			}
+			else if (e.code !== 200) {
+				await set_last_error(connectionPool, result["user_id"], e.code);
+				log_line_error(result["screen_name"], result["user_id"], "failed to tweet, http status code " + e.code + ".", params);
+			}
+			
+		}
+		else {
+			log_line_error(null, null, "!!! Can't tweet, internal error", e);
+		}
+	}
+}
+
+
 /**
- * @param {{ query: (arg0: string, arg1: any[]) => [any, any] | PromiseLike<[any, any]>; }} connectionPool
- * @param {any} svgConverter
- * @param {string | number} origin
+ * @param {mysql.Pool} connectionPool
+ * @param {string} origin
  * @param {number} tries_remaining
- * @param {Twit} T
- * @param {{ [x: string]: any; }} result
+ * @param {import("twitter-api-v2").TwitterApiReadWrite} T
+ * @param {{ [x: string]: string; }} result
  * @param {{ [x: string]: any; }} [in_reply_to]
  */
-async function recurse_retry(connectionPool, svgConverter, origin, tries_remaining, processedGrammar, T, result, in_reply_to)
+async function recurse_retry(connectionPool, origin, tries_remaining, processedGrammar, T, result, in_reply_to)
 {
 	if (tries_remaining <= 0)
 	{
@@ -334,9 +389,10 @@ async function recurse_retry(connectionPool, svgConverter, origin, tries_remaini
 			let start_time_for_processing_tags = process.hrtime();
 			try 
 			{
+				//can't do this in parallel - Puppeteer gets confused if you try to render two SVGs at once with the same instance
 				var medias = [];
 				for (const tag of media_tags) {
-					var id = await render_media_tag(tag, T, connectionPool, svgConverter, result["user_id"]);
+					var id = await render_media_tag(tag, T, connectionPool, result["user_id"]);
 					medias.push(id);
 				}
 				params.media_ids = medias;
@@ -344,7 +400,7 @@ async function recurse_retry(connectionPool, svgConverter, origin, tries_remaini
 			catch (err)
 			{
 				log_line_error(result["screen_name"], result["user_id"], "failed rendering and uploading media", err);
-				recurse_retry(connectionPool, svgConverter, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+				await recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				return;
 			}
 			let processing_time = process.hrtime(start_time_for_processing_tags);
@@ -352,95 +408,27 @@ async function recurse_retry(connectionPool, svgConverter, origin, tries_remaini
 				log_line(result["screen_name"], result["user_id"], `processing media tags took ${processing_time[0]}:${processing_time[1]}`);
 			}
 			if (processing_time[0] > 60) {
-				log_line_error(result["screen_name"], result["user_id"], `processing media tags took ${processing_time[0]}:${processing_time[1]}`, err);
+				log_line_error(result["screen_name"], result["user_id"], `processing media tags took too long ${processing_time[0]}:${processing_time[1]}`);
 			}
 		}
-		log_line(result["screen_name"], result["user_id"], "tweeting", params);
 
-		try
-		{
-			var {data, resp} = await T.post('statuses/update', params);
-
-			if (!resp)
-			{
-				if (data.errors){
-					var err = data.errors[0];
-
-					await set_last_error(connectionPool, result["user_id"], err["code"]);
-				}
-				else { 
-					await set_last_error(connectionPool, result["user_id"], resp.statusCode);
-					log_line(result["screen_name"], result["user_id"], "no explicit error given (maybe HTTP 431)", params);
-					return;
-				}
-
-				if (err["code"] == 186) // too long
-				{
-					recurse_retry(connectionPool, svgConverter, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
-				}
-				else if (err['code'] == 187) //duplicate tweet
-				{
-					recurse_retry(connectionPool, svgConverter, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
-				}
-				else if (err['code'] == 170) //empty tweet
-				{
-					recurse_retry(connectionPool, svgConverter, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
-				}
-				else if (err['code'] == 64)  
-				{
-					log_line(result["screen_name"], result["user_id"], "suspended (64)", params);
-				}
-				else if (err['code'] == 89)  
-				{
-					log_line(result["screen_name"], result["user_id"], "invalid permissions (89)", params);
-				}
-				else if (err['code'] == 326)  
-				{
-					log_line(result["screen_name"], result["user_id"], "temp locked for spam (326)", params);
-				}
-				else if (err['code'] == 226)  
-				{
-					log_line(result["screen_name"], result["user_id"], "flagged as bot (226)", params);
-				}
-				else if (err['statusCode'] == 404)
-				{
-					log_line(result["screen_name"], result["user_id"], "mystery status (404)", params);
-				}
-				else
-				{
-					log_line_error(result["screen_name"], result["user_id"], "failed to tweet for a more mysterious reason (" + err["code"] + ")", params);
-				}
-			}
-			else if (resp.statusCode != 200)
-			{
-				log_line_error(result["screen_name"], result["user_id"], "failed to tweet, http status code " + resp.statusCode + ".", params);
-			}
-			
-		}
-		catch (err)
-		{
-			log_line_error(result["screen_name"], result["user_id"], "failed to tweet " + util.inspect(params), err);
-			throw (err);
-		}
-				
+		await doTweet(T, params, result, connectionPool, origin, tries_remaining, processedGrammar, in_reply_to);
 	}
 	catch (e)
 	{
-		log_line_error(result["screen_name"], result["user_id"], "failed to tweet ", err);
-		recurse_retry(connectionPool, svgConverter, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+		log_line_error(result["screen_name"], result["user_id"], "failed to tweet - error", e);
+		await recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 	}
-	
-
 };
 	
+
 
 /**
  * 
  * @param {*} connectionPool 
- * @param {*} svgConverter 
  * @param {string} user_id 
  */
-async function tweet_for_account(connectionPool, svgConverter, user_id)
+async function tweet_for_account(connectionPool, user_id)
 {
 	let [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, user_id, tracery from `traceries` where user_id = ?', [user_id]);
 
@@ -449,18 +437,18 @@ async function tweet_for_account(connectionPool, svgConverter, user_id)
 	var processedGrammar = tracery.createGrammar(JSON.parse(tracery_result[0]['tracery']));
 	processedGrammar.addModifiers(tracery.baseEngModifiers); 
 	
-	var T = new Twit(
-	{
-		consumer_key:         process.env.TWITTER_CONSUMER_KEY
-		, consumer_secret:      process.env.TWITTER_CONSUMER_SECRET
-		, access_token:         tracery_result[0]['token']
-		, access_token_secret:  tracery_result[0]['token_secret']
-	}
-	);
+	const T = new TwitterApi({
+		appKey: process.env.TWITTER_CONSUMER_KEY,
+		appSecret: process.env.TWITTER_CONSUMER_SECRET,
+		accessToken: tracery_result[0]['token'],
+		accessSecret: tracery_result[0]['token_secret'],
+	}).readWrite;
+
+  
 
 	try
 	{
-		await recurse_retry(connectionPool, svgConverter, "#origin#", 5, processedGrammar, T, tracery_result[0]);
+		await recurse_retry(connectionPool, "#origin#", 5, processedGrammar, T, tracery_result[0]);
 	}
 	catch (e)
 	{
@@ -472,10 +460,9 @@ async function tweet_for_account(connectionPool, svgConverter, user_id)
 /**
  * 
  * @param {mysql.Pool} connectionPool 
- * @param {*} svgConverter 
  * @param {string} user_id 
  */
-async function reply_for_account(connectionPool, svgConverter, user_id)
+async function reply_for_account(connectionPool, user_id)
 {
 	
 	if (Math.random() < 0.05)
@@ -486,14 +473,13 @@ async function reply_for_account(connectionPool, svgConverter, user_id)
 	var [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, tracery, user_id, last_reply, reply_rules from `traceries` where user_id = ?', [user_id]);
 	
 
-	var T = new Twit(
-		{
-			consumer_key:         process.env.TWITTER_CONSUMER_KEY
-		  , consumer_secret:      process.env.TWITTER_CONSUMER_SECRET
-		  , access_token:         tracery_result[0]['token']
-		  , access_token_secret:  tracery_result[0]['token_secret']
-		}
-	);
+	const T = new TwitterApi({
+		appKey: process.env.TWITTER_CONSUMER_KEY,
+		appSecret: process.env.TWITTER_CONSUMER_SECRET,
+		accessToken: tracery_result[0]['token'],
+		accessSecret: tracery_result[0]['token_secret'],
+	}).readWrite;
+
 
 	try
 	{
@@ -503,6 +489,7 @@ async function reply_for_account(connectionPool, svgConverter, user_id)
 	catch (e)
 	{
 		log_line_error(tracery_result[0]['screen_name'], user_id, "failed to parse tracery for reply ", e);
+		return;
 	}
 
 	try
@@ -512,6 +499,7 @@ async function reply_for_account(connectionPool, svgConverter, user_id)
 	catch(e)
 	{
 		log_line_error(tracery_result[0]['screen_name'], user_id, "failed to parse reply_rules ", e);
+		return;
 	}
 
 
@@ -524,31 +512,44 @@ async function reply_for_account(connectionPool, svgConverter, user_id)
 		count = 1;
 	}
 
-	var {resp, data} = await T.get('statuses/mentions_timeline', {count:count, since_id:last_reply, include_entities: false});
-
-	if (!resp || resp.statusCode != 200)
-	{
-		log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " can't fetch mentions, statusCode: " + resp.statusCode + " message:" + resp.statusMessage + " data:", data);
+	try {
+		var mentions = await (await T.v1.mentionTimeline({ since_id: last_reply, count: count , include_entities: false, trim_user: true})).tweets;
 	}
-		
-	if (data.length > 0)
+	catch (e){
+		if (e instanceof ApiRequestError) {
+			log_line_error(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], "Can't upload media, API request error", e.requestError);
+		}
+		else if (e instanceof ApiResponseError) {
+
+			if ('code' in e.errors[0]) {
+				log_line_error(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], "Can't upload media, API response error. HTTP code:" + e.code + ", Twitter error code:" + e.errors[0].code);
+			}
+			else {
+				log_line_error(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], "Can't upload media, API response error. HTTP code:" + e.code);
+			}
+		}
+
+		return;
+	}
+
+	if (mentions.length > 0)
 	{
 		try
 		{
 			let [results, fields] = await connectionPool.query("UPDATE `traceries` SET `last_reply` = ? WHERE `user_id` = ?", 
-															   [data[0]["id_str"], tracery_result[0]["user_id"]]);
+															   [mentions[0]["id_str"], tracery_result[0]["user_id"]]);
 		
 
-			log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " set last_reply to " + data[0]["id_str"]);
+			log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " set last_reply to " + mentions[0]["id_str"]);
 		}
 		catch (e)
 		{
-			log_line_error(tracery_result[0]['screen_name'], user_id, "failed to update db for last_reply to " + data[0]["id_str"], e);
+			log_line_error(tracery_result[0]['screen_name'], user_id, "failed to update db for last_reply to " + mentions[0]["id_str"], e);
 			return;
 		}
 
 		//now we process the replies
-		for (const mention of data) {
+		for (const mention of mentions) {
 			try
 			{
 				log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " replying to ", mention["text"]);
@@ -558,7 +559,7 @@ async function reply_for_account(connectionPool, svgConverter, user_id)
 				{
 					if (Math.random() < 0.95)
 					{
-						await recurse_retry(connectionPool, svgConverter, origin, 5, processedGrammar, T, tracery_result[0], mention);
+						await recurse_retry(connectionPool, origin, 5, processedGrammar, T, tracery_result[0], mention);
 					}
 				}
 
@@ -606,18 +607,17 @@ async function run()
 			throw(new Error("Database connection error"));
 		}
 
-		const svgConverter = createConverter();
+		// @ts-ignore
 		for (const result of results) {
 			try
 			{
-				await tweet_for_account(connectionPool, svgConverter, result['user_id']);
+				await tweet_for_account(connectionPool, result['user_id']);
 			}
 			catch (e)
 			{
 				log_line_single_error("failed to tweet for " + result['user_id'] + " : " + e.message);
 			}
 		}
-		await svgConverter.destroy();
 
 	}
 	else if (replies)
@@ -633,24 +633,22 @@ async function run()
 		}
 
 
-		const svgConverter = createConverter();
 		for (const result of results) {
 			try
 			{
-				await reply_for_account(connectionPool, svgConverter, result['user_id']);
+				await reply_for_account(connectionPool, result['user_id']);
 			}
 			catch (e)
 			{
 				log_line_single_error("failed to reply for " + result['user_id'] + " : " + e.message);
 			}
 		}
-		await svgConverter.destroy();
 
 		
 	}
 
 	await connectionPool.end();
-	log_line_single("closed");
+	log_line_single("finished run");
 }
 
 run();
