@@ -23,8 +23,7 @@ const mysql = require('mysql2/promise');
 
 const FileType = require('file-type');
 
-function log_line_single(message)
-{
+function log_line_single(message) {
 	console.log(
 		new Date().toISOString(),
 		pid,
@@ -40,11 +39,9 @@ function log_line_single(message)
  * @param {string} [message]
  * @param {object} [params]
  */
-function log_line(screen_name, userid, message, params)
-{
-	if (params)
-	{
-		var paramString = util.inspect(params, {breakLength: Infinity, maxArrayLength:5});
+function log_line(screen_name, userid, message, params) {
+	if (params) {
+		var paramString = util.inspect(params, { breakLength: Infinity, maxArrayLength: 5 });
 
 		paramString = paramString.replace("\n", "\\n");
 	}
@@ -63,8 +60,7 @@ function log_line(screen_name, userid, message, params)
 /**
  * @param {string} message
  */
-function log_line_single_error(message)
-{
+function log_line_single_error(message) {
 	console.error(
 		new Date().toISOString(),
 		pid,
@@ -80,11 +76,9 @@ function log_line_single_error(message)
  * @param {string | Error} message
  * @param {{}} [params]
  */
-function log_line_error(screen_name, userid, message, params)
-{
-	if (params)
-	{
-		var paramString = util.inspect(params, {breakLength: Infinity, maxArrayLength:5});
+function log_line_error(screen_name, userid, message, params) {
+	if (params) {
+		var paramString = util.inspect(params, { breakLength: Infinity, maxArrayLength: 5 });
 
 		paramString = paramString.replace("\n", "\\n");
 	}
@@ -105,17 +99,14 @@ function log_line_error(screen_name, userid, message, params)
  * @param {any} user_id
  * @param {string | number} error_code
  */
-async function set_last_error(connectionPool, user_id, error_code) 
-{
-	try
-	{
-		let [results, fields] = await connectionPool.query("UPDATE `traceries` SET `last_error_code` = ? WHERE `user_id` = ?", 
+async function set_last_error(connectionPool, user_id, error_code) {
+	try {
+		let [results, fields] = await connectionPool.query("UPDATE `traceries` SET `last_error_code` = ? WHERE `user_id` = ?",
 			[error_code, user_id]);
-	
+
 		log_line(user_id, " set last_error_code to " + error_code);
 	}
-	catch (e)
-	{
+	catch (e) {
 		log_line_error(user_id, "failed to update db for last_error_code to " + error_code, e);
 		return;
 	}
@@ -129,8 +120,7 @@ async function set_last_error(connectionPool, user_id, error_code)
  * @param {mysql.Pool} connectionPool
  * @param {string} user_id
  */
-async function generate_svg(svg_text, T, connectionPool, user_id)
-{
+async function generate_svg(svg_text, T, connectionPool, user_id) {
 	const data = await render_svg.convert(svg_text);
 	// @ts-ignore
 	let media_id = await uploadMedia(data, T, connectionPool, user_id);
@@ -143,24 +133,20 @@ async function generate_svg(svg_text, T, connectionPool, user_id)
  * @param {mysql.Pool} connectionPool
  * @param {string} user_id
  */
-async function fetch_img(url, T, connectionPool, user_id)
-{
+async function fetch_img(url, T, connectionPool, user_id) {
 	let response = await fetch(url);
-	if (response.ok)
-	{
+	if (response.ok) {
 		log_line(null, null, "fetched " + url);
 		let buffer = await response.buffer();
 		let media_id = await uploadMedia(buffer, T, connectionPool, user_id); //doesn't allow gifs/movies
 		return media_id;
 	}
-	else
-	{
-		throw(new Error("couldn't fetch " + url + ", returned " + response.status));
+	else {
+		throw (new Error("couldn't fetch " + url + ", returned " + response.status));
 	}
 }
 
-async function uploadMediaChunked(buffer, mimeType, T)
-{
+async function uploadMediaChunked(buffer, mimeType, T) {
 	//todo see https://github.com/ttezel/twit/blob/master/tests/rest_chunked_upload.js#L20
 	//get mimeType with https://www.npmjs.com/package/file-type
 
@@ -174,11 +160,10 @@ async function uploadMediaChunked(buffer, mimeType, T)
  * @param {mysql.Pool} connectionPool
  * @param {string} user_id
  */
-async function uploadMedia(buffer, T, connectionPool, user_id)
-{
+async function uploadMedia(buffer, T, connectionPool, user_id) {
 	try {
 		const mimeType = (await FileType.fromBuffer(buffer)).mime;
-		const mediaId = await T.v1.uploadMedia(buffer, { type: mimeType});
+		const mediaId = await T.v1.uploadMedia(buffer, { type: mimeType });
 
 		log_line(null, null, "uploaded media", mediaId);
 		return mediaId;
@@ -190,31 +175,27 @@ async function uploadMedia(buffer, T, connectionPool, user_id)
 		else if (e instanceof ApiResponseError) {
 			if (e.code !== 200) {
 				await set_last_error(connectionPool, user_id, e.code);
-				if (e.code == 401)
-				{
+				if (e.code == 401) {
 					log_line_error(null, null, "Can't upload media, Not authorized", e.data);
-					throw (new Error ("Can't upload media, Not authorized"));
+					throw (new Error("Can't upload media, Not authorized"));
 				}
-				if (e.code == 403)
-				{
+				if (e.code == 403) {
 					log_line_error(null, null, "Can't upload media, Forbidden", e.data);
-					throw (new Error ("Can't upload media, Forbidden"));
+					throw (new Error("Can't upload media, Forbidden"));
 				}
-				if (e.code == 400)
-				{
+				if (e.code == 400) {
 					log_line_error(null, null, "Can't upload media, Bad Request", e.data);
-					throw (new Error ("Can't upload media, 400 Bad Request"));
+					throw (new Error("Can't upload media, 400 Bad Request"));
 				}
-				else
-				{
+				else {
 					var err = new Error("Couldn't upload media, got response status " + e.code);
-		
+
 					log_line_error(null, null, err, e.data);
 					throw (err);
 				}
 			}
 			else {
-				if ("code" in e.errors[0]){
+				if ("code" in e.errors[0]) {
 					await set_last_error(connectionPool, user_id, e.errors[0].code);
 				}
 			}
@@ -231,23 +212,23 @@ async function uploadMedia(buffer, T, connectionPool, user_id)
  * @param {string} text
  */
 function matchBrackets(text) {
-  
-  // simple utility function
-  function reverseString(s) {
-    return s.split('').reverse().join('');
-  }
 
-  // this is an inverstion of the natural order for this RegEx:
-  var bracketsRe = /(\}(?!\\)(.+?)\{(?!\\))/g;
+	// simple utility function
+	function reverseString(s) {
+		return s.split('').reverse().join('');
+	}
 
-  text = reverseString(text);
-  var matches = text.match(bracketsRe);
-  if(matches === null) {
-    return null;
-  }
-  else {
-    return matches.map(reverseString).reverse();
-  }
+	// this is an inverstion of the natural order for this RegEx:
+	var bracketsRe = /(\}(?!\\)(.+?)\{(?!\\))/g;
+
+	text = reverseString(text);
+	var matches = text.match(bracketsRe);
+	if (matches === null) {
+		return null;
+	}
+	else {
+		return matches.map(reverseString).reverse();
+	}
 }
 
 
@@ -255,18 +236,18 @@ function matchBrackets(text) {
 /**
  * @param {string} text
  */
-function removeBrackets (text) {
-  
-  // simple utility function
-  var reverseString = function(s) {
-    return s.split('').reverse().join('');
-  }
+function removeBrackets(text) {
 
-  // this is an inverstion of the natural order for this RegEx:
-  var bracketsRe = /(\}(?!\\)(.+?)\{(?!\\))/g;
+	// simple utility function
+	var reverseString = function (s) {
+		return s.split('').reverse().join('');
+	}
 
-  text = reverseString(text);
-  return reverseString(text.replace(bracketsRe, ""));
+	// this is an inverstion of the natural order for this RegEx:
+	var bracketsRe = /(\}(?!\\)(.+?)\{(?!\\))/g;
+
+	text = reverseString(text);
+	return reverseString(text.replace(bracketsRe, ""));
 }
 
 
@@ -277,24 +258,20 @@ function removeBrackets (text) {
  * @param {mysql.Pool} connectionPool
  * @param {string} user_id
  */
-function render_media_tag(match, T, connectionPool, user_id)
-{
+function render_media_tag(match, T, connectionPool, user_id) {
 	var unescapeOpenBracket = /\\{/g;
 	var unescapeCloseBracket = /\\}/g;
 	match = match.replace(unescapeOpenBracket, "{");
 	match = match.replace(unescapeCloseBracket, "}");
 
-	if (match.indexOf("svg ") === 1)
-	{
-		return generate_svg(match.substr(5,match.length - 6), T, connectionPool, user_id);
+	if (match.indexOf("svg ") === 1) {
+		return generate_svg(match.substr(5, match.length - 6), T, connectionPool, user_id);
 	}
-	else if (match.indexOf("img ") === 1)
-	{
+	else if (match.indexOf("img ") === 1) {
 		return fetch_img(match.substr(5, match.length - 6), T, connectionPool, user_id);
 	}
-	else
-	{
-		throw(new Error("error {" + match.substr(1,4) + "... not recognized"));
+	else {
+		throw (new Error("error {" + match.substr(1, 4) + "... not recognized"));
 	}
 }
 
@@ -309,10 +286,10 @@ async function doTweet(T, params, result, connectionPool, origin, tries_remainin
 			log_line_error(null, null, "Can't tweet, API request error", e.requestError);
 		}
 		else if (e instanceof ApiResponseError) {
-			
-				if ('code' in e.errors[0]) {
-					await set_last_error(connectionPool, result["user_id"], e.errors[0].code);
-				
+
+			if ('code' in e.errors[0]) {
+				await set_last_error(connectionPool, result["user_id"], e.errors[0].code);
+
 				if (e.hasErrorCode(EApiV1ErrorCode.TweetTextTooLong)) {
 					await recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				}
@@ -342,7 +319,7 @@ async function doTweet(T, params, result, connectionPool, origin, tries_remainin
 				await set_last_error(connectionPool, result["user_id"], e.code);
 				log_line_error(result["screen_name"], result["user_id"], "failed to tweet, http status code " + e.code + ".", params);
 			}
-			
+
 		}
 		else {
 			log_line_error(null, null, "!!! Can't tweet, internal error", e);
@@ -359,36 +336,29 @@ async function doTweet(T, params, result, connectionPool, origin, tries_remainin
  * @param {{ [x: string]: string; }} result
  * @param {{ [x: string]: any; }} [in_reply_to]
  */
-async function recurse_retry(connectionPool, origin, tries_remaining, processedGrammar, T, result, in_reply_to)
-{
-	if (tries_remaining <= 0)
-	{
+async function recurse_retry(connectionPool, origin, tries_remaining, processedGrammar, T, result, in_reply_to) {
+	if (tries_remaining <= 0) {
 		return;
 	}
 
-	try
-	{
+	try {
 		var tweet = processedGrammar.flatten(origin);
 		var tweet_without_image = removeBrackets(tweet);
 		var media_tags = matchBrackets(tweet);
 
 		let params = {};
 
-		if (typeof in_reply_to === 'undefined')
-		{
-			params = { status: tweet_without_image};
+		if (typeof in_reply_to === 'undefined') {
+			params = { status: tweet_without_image };
 		}
-		else
-		{
+		else {
 			var screen_name = in_reply_to["user"]["screen_name"];
-			params = {status: "@" + screen_name + " " + tweet_without_image, in_reply_to_status_id:in_reply_to["id_str"]}
+			params = { status: "@" + screen_name + " " + tweet_without_image, in_reply_to_status_id: in_reply_to["id_str"] }
 		}
 
-		if (media_tags)
-		{
+		if (media_tags) {
 			let start_time_for_processing_tags = process.hrtime();
-			try 
-			{
+			try {
 				//can't do this in parallel - Puppeteer gets confused if you try to render two SVGs at once with the same instance
 				var medias = [];
 				for (const tag of media_tags) {
@@ -397,8 +367,7 @@ async function recurse_retry(connectionPool, origin, tries_remaining, processedG
 				}
 				params.media_ids = medias;
 			}
-			catch (err)
-			{
+			catch (err) {
 				log_line_error(result["screen_name"], result["user_id"], "failed rendering and uploading media", err);
 				await recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				return;
@@ -414,13 +383,12 @@ async function recurse_retry(connectionPool, origin, tries_remaining, processedG
 
 		await doTweet(T, params, result, connectionPool, origin, tries_remaining, processedGrammar, in_reply_to);
 	}
-	catch (e)
-	{
+	catch (e) {
 		log_line_error(result["screen_name"], result["user_id"], "failed to tweet - error", e);
 		await recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 	}
 };
-	
+
 
 
 /**
@@ -428,15 +396,14 @@ async function recurse_retry(connectionPool, origin, tries_remaining, processedG
  * @param {*} connectionPool 
  * @param {string} user_id 
  */
-async function tweet_for_account(connectionPool, user_id)
-{
+async function tweet_for_account(connectionPool, user_id) {
 	let [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, user_id, tracery from `traceries` where user_id = ?', [user_id]);
 
 
 
 	var processedGrammar = tracery.createGrammar(JSON.parse(tracery_result[0]['tracery']));
-	processedGrammar.addModifiers(tracery.baseEngModifiers); 
-	
+	processedGrammar.addModifiers(tracery.baseEngModifiers);
+
 	const T = new TwitterApi({
 		appKey: process.env.TWITTER_CONSUMER_KEY,
 		appSecret: process.env.TWITTER_CONSUMER_SECRET,
@@ -444,14 +411,12 @@ async function tweet_for_account(connectionPool, user_id)
 		accessSecret: tracery_result[0]['token_secret'],
 	}).readWrite;
 
-  
 
-	try
-	{
+
+	try {
 		await recurse_retry(connectionPool, "#origin#", 5, processedGrammar, T, tracery_result[0]);
 	}
-	catch (e)
-	{
+	catch (e) {
 		log_line_error(tracery_result[0]['screen_name'], user_id, "failed to tweet ", e);
 	}
 }
@@ -462,16 +427,14 @@ async function tweet_for_account(connectionPool, user_id)
  * @param {mysql.Pool} connectionPool 
  * @param {string} user_id 
  */
-async function reply_for_account(connectionPool, user_id)
-{
-	
-	if (Math.random() < 0.05)
-	{
+async function reply_for_account(connectionPool, user_id) {
+
+	if (Math.random() < 0.05) {
 		return;
 	}
 
 	var [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, tracery, user_id, last_reply, reply_rules from `traceries` where user_id = ?', [user_id]);
-	
+
 
 	const T = new TwitterApi({
 		appKey: process.env.TWITTER_CONSUMER_KEY,
@@ -481,23 +444,19 @@ async function reply_for_account(connectionPool, user_id)
 	}).readWrite;
 
 
-	try
-	{
+	try {
 		var processedGrammar = tracery.createGrammar(JSON.parse(tracery_result[0]["tracery"]));
-		processedGrammar.addModifiers(tracery.baseEngModifiers); 
+		processedGrammar.addModifiers(tracery.baseEngModifiers);
 	}
-	catch (e)
-	{
+	catch (e) {
 		log_line_error(tracery_result[0]['screen_name'], user_id, "failed to parse tracery for reply ", e);
 		return;
 	}
 
-	try
-	{
+	try {
 		var reply_rules = JSON.parse(tracery_result[0]["reply_rules"]);
 	}
-	catch(e)
-	{
+	catch (e) {
 		log_line_error(tracery_result[0]['screen_name'], user_id, "failed to parse reply_rules ", e);
 		return;
 	}
@@ -505,17 +464,16 @@ async function reply_for_account(connectionPool, user_id)
 
 	var last_reply = tracery_result[0]['last_reply'];
 	var count = 50;
-	if (last_reply == null)
-	{
+	if (last_reply == null) {
 		log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " last reply null, setting to 1 ");
 		last_reply = "1";
 		count = 1;
 	}
 
 	try {
-		var mentions = await (await T.v1.mentionTimeline({ since_id: last_reply, count: count , include_entities: false, trim_user: true})).tweets;
+		var mentions = await (await T.v1.mentionTimeline({ since_id: last_reply, count: count, include_entities: false, trim_user: true })).tweets;
 	}
-	catch (e){
+	catch (e) {
 		if (e instanceof ApiRequestError) {
 			log_line_error(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], "Can't upload media, API request error", e.requestError);
 		}
@@ -532,119 +490,100 @@ async function reply_for_account(connectionPool, user_id)
 		return;
 	}
 
-	if (mentions.length > 0)
-	{
-		try
-		{
-			let [results, fields] = await connectionPool.query("UPDATE `traceries` SET `last_reply` = ? WHERE `user_id` = ?", 
-															   [mentions[0]["id_str"], tracery_result[0]["user_id"]]);
-		
+	if (mentions.length > 0) {
+		try {
+			let [results, fields] = await connectionPool.query("UPDATE `traceries` SET `last_reply` = ? WHERE `user_id` = ?",
+				[mentions[0]["id_str"], tracery_result[0]["user_id"]]);
+
 
 			log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " set last_reply to " + mentions[0]["id_str"]);
 		}
-		catch (e)
-		{
+		catch (e) {
 			log_line_error(tracery_result[0]['screen_name'], user_id, "failed to update db for last_reply to " + mentions[0]["id_str"], e);
 			return;
 		}
 
 		//now we process the replies
 		for (const mention of mentions) {
-			try
-			{
+			try {
 				log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " replying to ", mention["text"]);
-	
-				var origin = _.find(reply_rules, function(origin,rule) {return new RegExp(rule).test(mention["text"]);});
-				if (typeof origin != "undefined")
-				{
-					if (Math.random() < 0.95)
-					{
+
+				var origin = _.find(reply_rules, function (origin, rule) { return new RegExp(rule).test(mention["text"]); });
+				if (typeof origin != "undefined") {
+					if (Math.random() < 0.95) {
 						await recurse_retry(connectionPool, origin, 5, processedGrammar, T, tracery_result[0], mention);
 					}
 				}
 
 			}
-			catch (e)
-			{
+			catch (e) {
 				log_line_error(tracery_result[0]['screen_name'], user_id, "failed to reply ", e);
 			}
 		}
 	}
 
-	
+
 }
 
 
-async function run()
-{
+async function run() {
 	log_line_single("starting");
-	try
-	{
+	try {
 		var connectionPool = await mysql.createPool({
-			connectionLimit : 10,
-			host     : 'localhost',
-			user     : 'tracery_node',
-			password : process.env.TRACERY_NODE_DB_PASSWORD,
-			database : 'traceryhosting',
-			charset : "utf8mb4"
+			connectionLimit: 10,
+			host: 'localhost',
+			user: 'tracery_node',
+			password: process.env.TRACERY_NODE_DB_PASSWORD,
+			database: 'traceryhosting',
+			charset: "utf8mb4"
 		});
 	}
-	catch(e)
-	{
-		throw(e);
+	catch (e) {
+		throw (e);
 		return;
-	}	
+	}
 
 
-	if (!replies && !isNaN(frequency))
-	{
+	if (!replies && !isNaN(frequency)) {
 		var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `frequency` = ? AND IFNULL(`blocked_status`, 0) = 0  AND (`last_error_code` IS NULL OR `last_error_code` NOT IN (64, 89, 326))', [frequency]);
-		
 
-		if (typeof results === 'undefined')
-		{
+
+		if (typeof results === 'undefined') {
 			log_line_single_error("database connection error");
-			throw(new Error("Database connection error"));
+			throw (new Error("Database connection error"));
 		}
 
 		// @ts-ignore
 		for (const result of results) {
-			try
-			{
+			try {
 				await tweet_for_account(connectionPool, result['user_id']);
 			}
-			catch (e)
-			{
+			catch (e) {
 				log_line_single_error("failed to tweet for " + result['user_id'] + " : " + e.message);
 			}
 		}
 
 	}
-	else if (replies)
-	{
+	else if (replies) {
 
-		try 
-		{
+		try {
 			var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `does_replies` = 1 AND IFNULL(`blocked_status`, 0) = 0 AND (`last_error_code` IS NULL OR `last_error_code` NOT IN (64, 89, 326))');
 		}
-		catch(e)
-		{
+		catch (e) {
 			log_line_single_error("failed to query db for replies");
 		}
 
 
 		for (const result of results) {
-			try
-			{
+			try {
 				await reply_for_account(connectionPool, result['user_id']);
 			}
-			catch (e)
-			{
+			catch (e) {
 				log_line_single_error("failed to reply for " + result['user_id'] + " : " + e.message);
 			}
 		}
 
-		
+
 	}
 
 	await connectionPool.end();
