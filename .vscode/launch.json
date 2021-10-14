@@ -16,13 +16,25 @@
         {
             "type": "node",
             "request": "launch",
-            "name": "Launch Program",
+            "name": "run (42)",
             "program": "${workspaceFolder}/run_bots.js",
             "envFile":"${workspaceFolder}/.env",
             "runtimeVersion": "14.18.0",
             "runtimeArgs": ["--trace-warnings"],
             "args": [
                 "42"
+            ]
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "run (replies)",
+            "program": "${workspaceFolder}/run_bots.js",
+            "envFile":"${workspaceFolder}/.env",
+            "runtimeVersion": "14.18.0",
+            "runtimeArgs": ["--trace-warnings"],
+            "args": [
+                "replies"
             ]
         }
     ]

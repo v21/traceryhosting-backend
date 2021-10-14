@@ -279,8 +279,8 @@ async function recurse_retry(connectionPool, origin, tries_remaining, processedG
 			params = { status: tweet_without_image };
 		}
 		else {
-			var screen_name = in_reply_to["user"]["screen_name"];
-			params = { status: "@" + screen_name + " " + tweet_without_image, in_reply_to_status_id: in_reply_to["id_str"] }
+			var screen_name = in_reply_to.user.screen_name;
+			params = { status: "@" + screen_name + " " + tweet_without_image, in_reply_to_status_id: in_reply_to.id_str }
 		}
 
 		if (media_tags) {
@@ -397,7 +397,7 @@ async function reply_for_account(connectionPool, user_id) {
 	}
 
 	try {
-		var mentions = await (await T.v1.mentionTimeline({ since_id: last_reply, count: count, include_entities: false, trim_user: true })).tweets;
+		var mentions = await (await T.v1.mentionTimeline({ since_id: last_reply, count: count, include_entities: false, trim_user: false })).tweets;
 	}
 	catch (e) {
 		if (e instanceof ApiRequestError) {
@@ -430,9 +430,9 @@ async function reply_for_account(connectionPool, user_id) {
 		//now we process the replies
 		for (const mention of mentions) {
 			try {
-				log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " replying to ", mention["text"]);
+				log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " replying to ", mention["full_text"]);
 
-				var origin = _.find(reply_rules, (function (origin, rule) { return new RegExp(rule).test(mention["text"]); }));
+				var origin = _.find(reply_rules, (function (origin, rule) { return new RegExp(rule).test(mention["full_text"]); }));
 				if (typeof origin != "undefined") {
 					if (Math.random() < 0.95) {
 						await recurse_retry(connectionPool, origin, 5, processedGrammar, T, tracery_result[0], mention);
