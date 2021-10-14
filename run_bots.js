@@ -8,6 +8,8 @@ const render_svg = require("render-svgs-with-puppeteer");
 const fetch = require('node-fetch');
 const FileType = require('file-type');
 
+const _ = require('lodash');
+
 const { log_line, log_line_error, set_last_error, log_line_single, log_line_single_error } = require("./logging");
 
 
@@ -412,7 +414,7 @@ async function reply_for_account(connectionPool, user_id) {
 			try {
 				log_line(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], " replying to ", mention["text"]);
 
-				var origin = reply_rules.find(function (origin, rule) { return new RegExp(rule).test(mention["text"]); });
+				var origin = _.find(reply_rules, (function (origin, rule) { return new RegExp(rule).test(mention["text"]); }));
 				if (typeof origin != "undefined") {
 					if (Math.random() < 0.95) {
 						await recurse_retry(connectionPool, origin, 5, processedGrammar, T, tracery_result[0], mention);
