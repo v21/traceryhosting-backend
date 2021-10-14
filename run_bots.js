@@ -37,7 +37,7 @@ async function fetch_img(url, T, connectionPool, user_id) {
 	if (response.ok) {
 		log_line(null, null, "fetched " + url);
 		let buffer = await response.buffer();
-		let media_id = await uploadMedia(buffer, T, connectionPool, user_id); //doesn't allow gifs/movies
+		let media_id = await uploadMedia(buffer, T, connectionPool, user_id);
 		return media_id;
 	}
 	else {
@@ -68,9 +68,24 @@ async function uploadMedia(buffer, T, connectionPool, user_id) {
 		else if (e instanceof ApiResponseError) {
 			if ("code" in e.errors[0]) {
 				await set_last_error(connectionPool, user_id, e.errors[0].code);
-			}
 
-			if (e.code !== 200) {
+				if (e.hasErrorCode(EApiV1ErrorCode.YouAreSuspended)) {
+					log_line(null, user_id, "Can't upload media, suspended (64)");
+				}
+				else if (e.hasErrorCode(EApiV1ErrorCode.InvalidOrExpiredToken)) {
+					log_line(null, user_id, "Can't upload media, invalid permissions (89)");
+				}
+				else if (e.hasErrorCode(EApiV1ErrorCode.AccountLocked)) {
+					log_line(null, user_id, "Can't upload media, temp locked for spam (326)");
+				}
+				else if (e.hasErrorCode(EApiV1ErrorCode.RequestLooksLikeSpam)) {
+					log_line(null, user_id, "Can't upload media, flagged as bot (226)");
+				}
+				else {
+					log_line_error(null, user_id, "failed to tweet for a more mysterious reason (" + e.code + ")", e);
+				}
+			}
+			else if (e.code !== 200) {
 				await set_last_error(connectionPool, user_id, e.code);
 				if (e.code == 401) {
 					log_line_error(null, user_id, "Can't upload media, Not authorized", e.data);
@@ -94,6 +109,10 @@ async function uploadMedia(buffer, T, connectionPool, user_id) {
 				log_line_error(null, user_id, "Can't upload media, API response error", e);
 				throw (e);
 			}
+		}
+		else {
+			log_line_error(null, user_id, "Can't upload media, other error", e);
+			throw (e);
 		}
 	}
 
@@ -267,7 +286,6 @@ async function recurse_retry(connectionPool, origin, tries_remaining, processedG
 		if (media_tags) {
 			let start_time_for_processing_tags = process.hrtime();
 			try {
-				//can't do this in parallel - Puppeteer gets confused if you try to render two SVGs at once with the same instance
 				var medias = [];
 				for (const tag of media_tags) {
 					var id = await render_media_tag(tag, T, connectionPool, result["user_id"]);
