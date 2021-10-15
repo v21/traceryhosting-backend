@@ -401,15 +401,15 @@ async function reply_for_account(connectionPool, svgPuppet, user_id) {
 	}
 	catch (e) {
 		if (e instanceof ApiRequestError) {
-			log_line_error(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], "Can't upload media, API request error", e.requestError);
+			log_line_error(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], "Can't fetch replies, API request error", e.requestError);
 		}
 		else if (e instanceof ApiResponseError) {
 
 			if ('code' in e.errors[0]) {
-				log_line_error(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], "Can't upload media, API response error. HTTP code:" + e.code + ", Twitter error code:" + e.errors[0].code);
+				log_line_error(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], "Can't fetch replies, API response error. HTTP code:" + e.code + ", Twitter error code:" + e.errors[0].code);
 			}
 			else {
-				log_line_error(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], "Can't upload media, API response error. HTTP code:" + e.code);
+				log_line_error(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], "Can't fetch replies, API response error. HTTP code:" + e.code);
 			}
 		}
 
