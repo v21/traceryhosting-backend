@@ -4,7 +4,7 @@ const tracery = require('tracery-grammar');
 const { TwitterApi, ApiRequestError, ApiResponseError, EApiV1ErrorCode } = require('twitter-api-v2');
 const mysql = require('mysql2/promise');
 
-const render_svg = require("render-svgs-with-puppeteer");
+const { convert, createPuppet, destroyPuppet } = require('render-svgs-with-puppeteer');
 const fetch = require('node-fetch');
 const FileType = require('file-type');
 
@@ -17,10 +17,11 @@ const { log_line, log_line_error, set_last_error, log_line_single, log_line_sing
  * @param {string} svg_text
  * @param {import("twitter-api-v2").TwitterApiReadWrite} T
  * @param {mysql.Pool} connectionPool
+ * @param {import("render-svgs-with-puppeteer").Browser|undefined} svgPuppet
  * @param {string} user_id
  */
-async function generate_svg(svg_text, T, connectionPool, user_id) {
-	const data = await render_svg.convert(svg_text);
+async function generate_svg(svg_text, T, connectionPool, svgPuppet, user_id) {
+	const data = await convert(svg_text, svgPuppet);
 	// @ts-ignore
 	let media_id = await uploadMedia(data, T, connectionPool, user_id);
 	return media_id;
@@ -173,16 +174,17 @@ function removeBrackets(text) {
  * @param {string} match
  * @param {import("twitter-api-v2").TwitterApiReadWrite} T
  * @param {mysql.Pool} connectionPool
+ * @param {import("render-svgs-with-puppeteer").Browser|undefined} svgPuppet
  * @param {string} user_id
  */
-function render_media_tag(match, T, connectionPool, user_id) {
+function render_media_tag(match, T, connectionPool, svgPuppet, user_id) {
 	var unescapeOpenBracket = /\\{/g;
 	var unescapeCloseBracket = /\\}/g;
 	match = match.replace(unescapeOpenBracket, "{");
 	match = match.replace(unescapeCloseBracket, "}");
 
 	if (match.indexOf("svg ") === 1) {
-		return generate_svg(match.substr(5, match.length - 6), T, connectionPool, user_id);
+		return generate_svg(match.substr(5, match.length - 6), T, connectionPool, svgPuppet, user_id);
 	}
 	else if (match.indexOf("img ") === 1) {
 		return fetch_img(match.substr(5, match.length - 6), T, connectionPool, user_id);
@@ -194,16 +196,17 @@ function render_media_tag(match, T, connectionPool, user_id) {
 
 
 /**
- * @param {import("twitter-api-v2").TwitterApiReadWrite} T
- * @param {{ status?: any; }} params
- * @param {{ [x: string]: string; }} result
  * @param {mysql.Pool} connectionPool
+ * @param {import("render-svgs-with-puppeteer").Browser|undefined} svgPuppet
  * @param {string} origin
  * @param {number} tries_remaining
  * @param {any} processedGrammar
- * @param {{ [x: string]: any; }} in_reply_to
+ * @param {import("twitter-api-v2").TwitterApiReadWrite} T
+ * @param {{ status?: any; }} params
+ * @param {{ [x: string]: string; }} result
+ * @param {import("twitter-api-v2").TweetV1} in_reply_to
  */
-async function doTweet(T, params, result, connectionPool, origin, tries_remaining, processedGrammar, in_reply_to) {
+async function doTweet(connectionPool, svgPuppet, origin, tries_remaining, processedGrammar, T, params, result, in_reply_to) {
 	try {
 		log_line(result["screen_name"], result["user_id"], "tweeting", params);
 		const tweet = await T.v1.tweet(params.status, params);
@@ -218,13 +221,13 @@ async function doTweet(T, params, result, connectionPool, origin, tries_remainin
 				await set_last_error(connectionPool, result["user_id"], e.errors[0].code);
 
 				if (e.hasErrorCode(EApiV1ErrorCode.TweetTextTooLong)) {
-					await recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+					await recurse_retry(connectionPool, svgPuppet, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				}
 				else if (e.hasErrorCode(EApiV1ErrorCode.DuplicatedTweet)) {
-					await recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+					await recurse_retry(connectionPool, svgPuppet, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				}
 				else if (e.hasErrorCode(170)) { //empty tweet
-					await recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+					await recurse_retry(connectionPool, svgPuppet, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				}
 				else if (e.hasErrorCode(EApiV1ErrorCode.YouAreSuspended)) {
 					log_line(result["screen_name"], result["user_id"], "suspended (64)", params);
@@ -254,16 +257,17 @@ async function doTweet(T, params, result, connectionPool, origin, tries_remainin
 	}
 }
 
-
 /**
  * @param {mysql.Pool} connectionPool
+ * @param {import("render-svgs-with-puppeteer").Browser|undefined} svgPuppet
  * @param {string} origin
  * @param {number} tries_remaining
+ * @param {*} processedGrammar
  * @param {import("twitter-api-v2").TwitterApiReadWrite} T
  * @param {{ [x: string]: string; }} result
- * @param {{ [x: string]: any; }} [in_reply_to]
+ * @param {import("twitter-api-v2").TweetV1} [in_reply_to]
  */
-async function recurse_retry(connectionPool, origin, tries_remaining, processedGrammar, T, result, in_reply_to) {
+async function recurse_retry(connectionPool, svgPuppet, origin, tries_remaining, processedGrammar, T, result, in_reply_to) {
 	if (tries_remaining <= 0) {
 		return;
 	}
@@ -286,16 +290,11 @@ async function recurse_retry(connectionPool, origin, tries_remaining, processedG
 		if (media_tags) {
 			let start_time_for_processing_tags = process.hrtime();
 			try {
-				var medias = [];
-				for (const tag of media_tags) {
-					var id = await render_media_tag(tag, T, connectionPool, result["user_id"]);
-					medias.push(id);
-				}
-				params.media_ids = medias;
+				params.media_ids = await Promise.all(media_tags.map((tag) => render_media_tag(tag, T, connectionPool, svgPuppet, result["user_id"])));
 			}
 			catch (err) {
 				log_line_error(result["screen_name"], result["user_id"], "failed rendering and uploading media", err);
-				await recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+				await recurse_retry(connectionPool, svgPuppet, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 				return;
 			}
 			let processing_time = process.hrtime(start_time_for_processing_tags);
@@ -307,22 +306,22 @@ async function recurse_retry(connectionPool, origin, tries_remaining, processedG
 			}
 		}
 
-		await doTweet(T, params, result, connectionPool, origin, tries_remaining, processedGrammar, in_reply_to);
+		await doTweet(connectionPool, svgPuppet, origin, tries_remaining, processedGrammar, T, params, result, in_reply_to);
 	}
 	catch (e) {
 		log_line_error(result["screen_name"], result["user_id"], "failed to tweet - error", e);
-		await recurse_retry(connectionPool, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+		await recurse_retry(connectionPool, svgPuppet, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 	}
 };
 
 
 
 /**
- * 
- * @param {*} connectionPool 
- * @param {string} user_id 
+ * @param {mysql.Pool} connectionPool
+ * @param {import("render-svgs-with-puppeteer").Browser|undefined} svgPuppet
+ * @param {string} user_id
  */
-async function tweet_for_account(connectionPool, user_id) {
+async function tweet_for_account(connectionPool, svgPuppet, user_id) {
 	let [tracery_result, fields] = await connectionPool.query('SELECT token, token_secret, screen_name, user_id, tracery from `traceries` where user_id = ?', [user_id]);
 
 
@@ -340,7 +339,7 @@ async function tweet_for_account(connectionPool, user_id) {
 
 
 	try {
-		await recurse_retry(connectionPool, "#origin#", 5, processedGrammar, T, tracery_result[0]);
+		await recurse_retry(connectionPool, svgPuppet, "#origin#", 5, processedGrammar, T, tracery_result[0]);
 	}
 	catch (e) {
 		log_line_error(tracery_result[0]['screen_name'], user_id, "failed to tweet ", e);
@@ -351,9 +350,10 @@ async function tweet_for_account(connectionPool, user_id) {
 /**
  * 
  * @param {mysql.Pool} connectionPool 
+ * @param {import("render-svgs-with-puppeteer").Browser|undefined} svgPuppet
  * @param {string} user_id 
  */
-async function reply_for_account(connectionPool, user_id) {
+async function reply_for_account(connectionPool, svgPuppet, user_id) {
 
 	if (Math.random() < 0.05) {
 		return;
@@ -427,6 +427,9 @@ async function reply_for_account(connectionPool, user_id) {
 			return;
 		}
 
+
+
+
 		//now we process the replies
 		for (const mention of mentions) {
 			try {
@@ -435,7 +438,7 @@ async function reply_for_account(connectionPool, user_id) {
 				var origin = _.find(reply_rules, (function (origin, rule) { return new RegExp(rule).test(mention["full_text"]); }));
 				if (typeof origin != "undefined") {
 					if (Math.random() < 0.95) {
-						await recurse_retry(connectionPool, origin, 5, processedGrammar, T, tracery_result[0], mention);
+						await recurse_retry(connectionPool, svgPuppet, origin, 5, processedGrammar, T, tracery_result[0], mention);
 					}
 				}
 
@@ -473,6 +476,14 @@ async function run() {
 		return;
 	}
 
+	let svgPuppet = undefined;
+	try {
+		svgPuppet = await createPuppet();
+	}
+	catch (e) {
+		log_line_single_error("failed to create svgPuppet " + e);
+	}
+
 	if (!replies && !isNaN(frequency)) {
 		var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `frequency` = ? AND IFNULL(`blocked_status`, 0) = 0  AND (`last_error_code` IS NULL OR `last_error_code` NOT IN (64, 89, 326))', [frequency]);
 
@@ -485,7 +496,7 @@ async function run() {
 		// @ts-ignore
 		for (const result of results) {
 			try {
-				await tweet_for_account(connectionPool, result['user_id']);
+				await tweet_for_account(connectionPool, svgPuppet, result['user_id']);
 			}
 			catch (e) {
 				log_line_single_error("failed to tweet for " + result['user_id'] + " : " + e.message);
@@ -505,7 +516,7 @@ async function run() {
 
 		for (const result of results) {
 			try {
-				await reply_for_account(connectionPool, result['user_id']);
+				await reply_for_account(connectionPool, svgPuppet, result['user_id']);
 			}
 			catch (e) {
 				log_line_single_error("failed to reply for " + result['user_id'] + " : " + e.message);
@@ -513,6 +524,16 @@ async function run() {
 		}
 
 
+	}
+
+
+	try {
+		if (svgPuppet) {
+			await destroyPuppet(svgPuppet);
+		}
+	}
+	catch (e) {
+		log_line_single_error("failed to destroy svgPuppet " + e);
 	}
 
 	await connectionPool.end();
