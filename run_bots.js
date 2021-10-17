@@ -55,8 +55,12 @@ async function fetch_img(url, T, connectionPool, user_id) {
  */
 async function uploadMedia(buffer, T, connectionPool, user_id) {
 	try {
-		const mimeType = (await FileType.fromBuffer(buffer)).mime;
-		const mediaId = await T.v1.uploadMedia(buffer, { type: mimeType });
+		const file_type = await FileType.fromBuffer(buffer);
+		if (!file_type) {
+			log_line(null, user_id, "Unknown mime type");
+			throw (new Error("Unknown mime type"));
+		}
+		const mediaId = await T.v1.uploadMedia(buffer, { type: file_type.mime });
 
 		log_line(null, user_id, "uploaded media", mediaId);
 		return mediaId;
