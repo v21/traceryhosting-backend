@@ -410,6 +410,7 @@ async function reply_for_account(connectionPool, svgPuppet, user_id) {
 		else if (e instanceof ApiResponseError) {
 
 			if ('code' in e.errors[0]) {
+				await set_last_error(connectionPool, tracery_result[0]["user_id"], e.errors[0].code);
 				log_line_error(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], "Can't fetch replies, API response error. HTTP code:" + e.code + ", Twitter error code:" + e.errors[0].code);
 			}
 			else {
