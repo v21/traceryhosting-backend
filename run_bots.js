@@ -78,7 +78,7 @@ async function uploadMedia(buffer, T, connectionPool, user_id) {
 			throw (e);
 		}
 		else if (e instanceof ApiResponseError) {
-			if ("code" in e.errors[0]) {
+			if (e.errors && "code" in e.errors[0]) {
 				await set_last_error(connectionPool, user_id, e.errors[0].code);
 
 				if (e.hasErrorCode(EApiV1ErrorCode.YouAreSuspended)) {
