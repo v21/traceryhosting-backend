@@ -54,14 +54,21 @@ async function fetch_img(url, T, connectionPool, user_id) {
  * @param {string} user_id
  */
 async function uploadMedia(buffer, T, connectionPool, user_id) {
+	let file_type = null;
 	try {
-		const file_type = await FileType.fromBuffer(buffer);
-		if (!file_type) {
-			log_line(null, user_id, "Unknown mime type");
-			throw (new MediaRenderError("Unknown mime type"));
-		}
-		const mediaId = await T.v1.uploadMedia(buffer, { type: file_type.mime });
+		file_type = await FileType.fromBuffer(buffer);
+	}
+	catch (e) {
+		log_line_error(null, user_id, "Can't upload media, mime type detection failed", e);
+		throw (e);
+	}
+	if (!file_type) {
+		log_line(null, user_id, "Unknown mime type");
+		throw (new MediaRenderError("Unknown mime type"));
+	}
 
+	try {
+		const mediaId = await T.v1.uploadMedia(buffer, { type: file_type.mime });
 		log_line(null, user_id, "uploaded media", mediaId);
 		return mediaId;
 	}
