@@ -42,7 +42,7 @@ async function fetch_img(url, T, connectionPool, user_id) {
 		return media_id;
 	}
 	else {
-		throw (new Error("couldn't fetch " + url + ", returned " + response.status));
+		throw (new MediaRenderError("couldn't fetch " + url + ", returned " + response.status));
 	}
 }
 
@@ -58,7 +58,7 @@ async function uploadMedia(buffer, T, connectionPool, user_id) {
 		const file_type = await FileType.fromBuffer(buffer);
 		if (!file_type) {
 			log_line(null, user_id, "Unknown mime type");
-			throw (new Error("Unknown mime type"));
+			throw (new MediaRenderError("Unknown mime type"));
 		}
 		const mediaId = await T.v1.uploadMedia(buffer, { type: file_type.mime });
 
@@ -94,18 +94,18 @@ async function uploadMedia(buffer, T, connectionPool, user_id) {
 				await set_last_error(connectionPool, user_id, e.code);
 				if (e.code == 401) {
 					log_line_error(null, user_id, "Can't upload media, Not authorized", e.data);
-					throw (new Error("Can't upload media, Not authorized"));
+					throw (new MediaRenderError("Can't upload media, Not authorized", false));
 				}
 				if (e.code == 403) {
 					log_line_error(null, user_id, "Can't upload media, Forbidden", e.data);
-					throw (new Error("Can't upload media, Forbidden"));
+					throw (new MediaRenderError("Can't upload media, Forbidden", false));
 				}
 				if (e.code == 400) {
 					log_line_error(null, user_id, "Can't upload media, Bad Request", e.data);
-					throw (new Error("Can't upload media, 400 Bad Request"));
+					throw (new MediaRenderError("Can't upload media, 400 Bad Request", false));
 				}
 				else {
-					var err = new Error("Couldn't upload media, got response status " + e.code);
+					var err = new MediaRenderError("Couldn't upload media, got response status " + e.code);
 					log_line_error(null, user_id, err, e.data);
 					throw (err);
 				}
@@ -194,7 +194,19 @@ function render_media_tag(match, T, connectionPool, svgPuppet, user_id) {
 		return fetch_img(match.substr(5, match.length - 6), T, connectionPool, user_id);
 	}
 	else {
-		throw (new Error("error {" + match.substr(1, 4) + "... not recognized"));
+		log_line(null, user_id, "error {" + match.substr(1, 4) + "... not recognized");
+		throw (new MediaRenderError("error {" + match.substr(1, 4) + "... not recognized"));
+	}
+}
+
+class MediaRenderError extends Error {
+	/**
+	 * @param {string} message
+	 */
+	constructor(message, retry = true) {
+		super(message);
+		this.name = "MediaRenderError";
+		this.retry = retry;
 	}
 }
 
@@ -297,9 +309,16 @@ async function recurse_retry(connectionPool, svgPuppet, origin, tries_remaining,
 				params.media_ids = await Promise.all(media_tags.map((tag) => render_media_tag(tag, T, connectionPool, svgPuppet, result["user_id"])));
 			}
 			catch (err) {
-				log_line_error(result["screen_name"], result["user_id"], "failed rendering and uploading media", err);
-				await recurse_retry(connectionPool, svgPuppet, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
-				return;
+				if (err instanceof MediaRenderError) {
+					if (err.retry) {
+						await recurse_retry(connectionPool, svgPuppet, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
+						return;
+					}
+				}
+				else {
+
+					log_line_error(result["screen_name"], result["user_id"], "failed rendering and uploading media", err);
+				}
 			}
 			let processing_time = process.hrtime(start_time_for_processing_tags);
 			if (processing_time[0] > 5) {
@@ -313,7 +332,8 @@ async function recurse_retry(connectionPool, svgPuppet, origin, tries_remaining,
 		await doTweet(connectionPool, svgPuppet, origin, tries_remaining, processedGrammar, T, params, result, in_reply_to);
 	}
 	catch (e) {
-		log_line_error(result["screen_name"], result["user_id"], "failed to tweet - error", e);
+		log_line_error(result["screen_name"], result["user_id"], "failed to tweet - unknown error", e);
+
 		await recurse_retry(connectionPool, svgPuppet, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
 	}
 };
