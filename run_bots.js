@@ -481,13 +481,15 @@ async function run() {
 		return;
 	}
 
+	// let svgPuppet = undefined;
+	// try {
+	// 	svgPuppet = await createPuppet();
+	// }
+	// catch (e) {
+	// 	log_line_single_error("failed to create svgPuppet " + e);
+	// }
+
 	let svgPuppet = undefined;
-	try {
-		svgPuppet = await createPuppet();
-	}
-	catch (e) {
-		log_line_single_error("failed to create svgPuppet " + e);
-	}
 
 	if (!replies && !isNaN(frequency)) {
 		var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `frequency` = ? AND IFNULL(`blocked_status`, 0) = 0  AND (`last_error_code` IS NULL OR `last_error_code` NOT IN (64, 89, 326))', [frequency]);
@@ -532,14 +534,14 @@ async function run() {
 	}
 
 
-	try {
-		if (svgPuppet) {
-			await destroyPuppet(svgPuppet);
-		}
-	}
-	catch (e) {
-		log_line_single_error("failed to destroy svgPuppet " + e);
-	}
+	// try {
+	// 	if (svgPuppet) {
+	// 		await destroyPuppet(svgPuppet);
+	// 	}
+	// }
+	// catch (e) {
+	// 	log_line_single_error("failed to destroy svgPuppet " + e);
+	// }
 
 	await connectionPool.end();
 	log_line_single("finished run");
