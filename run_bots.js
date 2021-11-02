@@ -571,7 +571,7 @@ async function run() {
 	// }
 
 	await connectionPool.end();
-	log_line_single("finished run");
+	log_line_single("finished run in " + process.uptime());
 }
 
 run();

@@ -9,7 +9,7 @@ function log_line_single(message) {
 		new Date().toISOString(),
 		pid,
 		"arg:" + process.argv[2],
-		"INFO",
+		"PROCESS_INFO",
 		message
 	);
 }
