@@ -197,7 +197,7 @@ function render_media_tag(match, T, connectionPool, svgPuppet, user_id) {
 	if (match.indexOf("svg ") === 1) {
 		return generate_svg(match.substr(5, match.length - 6), T, connectionPool, svgPuppet, user_id);
 	}
-	else if (match.indexOf("img ") === 1) {
+	else if (match.indexOf("img ") === 1 || match.indexOf("vid ") === 1) {
 		return fetch_img(match.substr(5, match.length - 6), T, connectionPool, user_id);
 	}
 	else {
