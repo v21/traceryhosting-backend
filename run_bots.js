@@ -19,11 +19,12 @@ const { log_line, log_line_error, set_last_error, log_line_single, log_line_sing
  * @param {mysql.Pool} connectionPool
  * @param {import("render-svgs-with-puppeteer").Browser|undefined} svgPuppet
  * @param {string} user_id
+ * @param {string} screen_name
  */
-async function generate_svg(svg_text, T, connectionPool, svgPuppet, user_id) {
+async function generate_svg(svg_text, T, connectionPool, svgPuppet, user_id, screen_name) {
 	const data = await convert(svg_text, svgPuppet);
 	// @ts-ignore
-	let media_id = await uploadMedia(data, T, connectionPool, user_id);
+	let media_id = await uploadMedia(data, T, connectionPool, user_id, screen_name);
 	return media_id;
 }
 
@@ -32,13 +33,14 @@ async function generate_svg(svg_text, T, connectionPool, svgPuppet, user_id) {
  * @param {import("twitter-api-v2").TwitterApiReadWrite} T
  * @param {mysql.Pool} connectionPool
  * @param {string} user_id
+ * @param {string} screen_name
  */
-async function fetch_img(url, T, connectionPool, user_id) {
+async function fetch_img(url, T, connectionPool, user_id, screen_name) {
 	let response = await fetch(url);
 	if (response.ok) {
-		log_line(null, null, "fetched " + url);
+		log_line(screen_name, user_id, "fetched " + url);
 		let buffer = await response.buffer();
-		let media_id = await uploadMedia(buffer, T, connectionPool, user_id);
+		let media_id = await uploadMedia(buffer, T, connectionPool, user_id, screen_name);
 		return media_id;
 	}
 	else {
@@ -52,29 +54,30 @@ async function fetch_img(url, T, connectionPool, user_id) {
  * @param {import("twitter-api-v2").TwitterApiReadWrite} T
  * @param {mysql.Pool} connectionPool
  * @param {string} user_id
+ * @param {string} screen_name
  */
-async function uploadMedia(buffer, T, connectionPool, user_id) {
+async function uploadMedia(buffer, T, connectionPool, user_id, screen_name) {
 	let file_type = null;
 	try {
 		file_type = await FileType.fromBuffer(buffer);
 	}
 	catch (e) {
-		log_line_error(null, user_id, "Can't upload media, mime type detection failed", e);
+		log_line_error(screen_name, user_id, "Can't upload media, mime type detection failed", e);
 		throw (e);
 	}
 	if (!file_type) {
-		log_line(null, user_id, "Unknown mime type");
+		log_line(screen_name, user_id, "Unknown mime type");
 		throw (new MediaRenderError("Unknown mime type"));
 	}
 
 	try {
 		const mediaId = await T.v1.uploadMedia(buffer, { type: file_type.mime });
-		log_line(null, user_id, "uploaded media", mediaId);
+		log_line(screen_name, user_id, "uploaded media", mediaId);
 		return mediaId;
 	}
 	catch (e) {
 		if (e instanceof ApiRequestError) {
-			log_line_error(null, user_id, "Can't upload media, API request error", e.requestError);
+			log_line_error(screen_name, user_id, "Can't upload media, API request error", e.requestError);
 			throw (e);
 		}
 		else if (e instanceof ApiResponseError) {
@@ -82,48 +85,48 @@ async function uploadMedia(buffer, T, connectionPool, user_id) {
 				await set_last_error(connectionPool, user_id, e.errors[0].code);
 
 				if (e.hasErrorCode(EApiV1ErrorCode.YouAreSuspended)) {
-					log_line(null, user_id, "Can't upload media, suspended (64)");
+					log_line(screen_name, user_id, "Can't upload media, suspended (64)");
 				}
 				else if (e.hasErrorCode(EApiV1ErrorCode.InvalidOrExpiredToken)) {
-					log_line(null, user_id, "Can't upload media, invalid permissions (89)");
+					log_line(screen_name, user_id, "Can't upload media, invalid permissions (89)");
 				}
 				else if (e.hasErrorCode(EApiV1ErrorCode.AccountLocked)) {
-					log_line(null, user_id, "Can't upload media, temp locked for spam (326)");
+					log_line(screen_name, user_id, "Can't upload media, temp locked for spam (326)");
 				}
 				else if (e.hasErrorCode(EApiV1ErrorCode.RequestLooksLikeSpam)) {
-					log_line(null, user_id, "Can't upload media, flagged as bot (226)");
+					log_line(screen_name, user_id, "Can't upload media, flagged as bot (226)");
 				}
 				else {
-					log_line_error(null, user_id, "failed to tweet for a more mysterious reason (" + e.code + ")", e);
+					log_line_error(screen_name, user_id, "failed to tweet for a more mysterious reason (" + e.code + ")", e);
 				}
 			}
 			else if (e.code !== 200) {
-				await set_last_error(connectionPool, user_id, e.code);
+				await set_last_error(connectionPool, user_id, e.code, screen_name);
 				if (e.code == 401) {
-					log_line_error(null, user_id, "Can't upload media, Not authorized", e.data);
+					log_line_error(screen_name, user_id, "Can't upload media, Not authorized", e.data);
 					throw (new MediaRenderError("Can't upload media, Not authorized", false));
 				}
 				if (e.code == 403) {
-					log_line_error(null, user_id, "Can't upload media, Forbidden", e.data);
+					log_line_error(screen_name, user_id, "Can't upload media, Forbidden", e.data);
 					throw (new MediaRenderError("Can't upload media, Forbidden", false));
 				}
 				if (e.code == 400) {
-					log_line_error(null, user_id, "Can't upload media, Bad Request", e.data);
+					log_line_error(screen_name, user_id, "Can't upload media, Bad Request", e.data);
 					throw (new MediaRenderError("Can't upload media, 400 Bad Request", false));
 				}
 				else {
 					var err = new MediaRenderError("Couldn't upload media, got response status " + e.code);
-					log_line_error(null, user_id, err, e.data);
+					log_line_error(screen_name, user_id, err, e.data);
 					throw (err);
 				}
 			}
 			else {
-				log_line_error(null, user_id, "Can't upload media, API response error", e);
+				log_line_error(screen_name, user_id, "Can't upload media, API response error", e);
 				throw (e);
 			}
 		}
 		else {
-			log_line_error(null, user_id, "Can't upload media, other error", e);
+			log_line_error(screen_name, user_id, "Can't upload media, other error", e);
 			throw (e);
 		}
 	}
@@ -187,21 +190,22 @@ function removeBrackets(text) {
  * @param {mysql.Pool} connectionPool
  * @param {import("render-svgs-with-puppeteer").Browser|undefined} svgPuppet
  * @param {string} user_id
+ * @param {string} screen_name
  */
-function render_media_tag(match, T, connectionPool, svgPuppet, user_id) {
+function render_media_tag(match, T, connectionPool, svgPuppet, user_id, screen_name) {
 	var unescapeOpenBracket = /\\{/g;
 	var unescapeCloseBracket = /\\}/g;
 	match = match.replace(unescapeOpenBracket, "{");
 	match = match.replace(unescapeCloseBracket, "}");
 
 	if (match.indexOf("svg ") === 1) {
-		return generate_svg(match.substr(5, match.length - 6), T, connectionPool, svgPuppet, user_id);
+		return generate_svg(match.substr(5, match.length - 6), T, connectionPool, svgPuppet, user_id, screen_name);
 	}
 	else if (match.indexOf("img ") === 1 || match.indexOf("vid ") === 1) {
-		return fetch_img(match.substr(5, match.length - 6), T, connectionPool, user_id);
+		return fetch_img(match.substr(5, match.length - 6), T, connectionPool, user_id, screen_name);
 	}
 	else {
-		log_line(null, user_id, "error {" + match.substr(1, 4) + "... not recognized");
+		log_line(screen_name, user_id, "error {" + match.substr(1, 4) + "... not recognized");
 		throw (new MediaRenderError("error {" + match.substr(1, 4) + "... not recognized"));
 	}
 }
@@ -313,7 +317,7 @@ async function recurse_retry(connectionPool, svgPuppet, origin, tries_remaining,
 		if (media_tags) {
 			let start_time_for_processing_tags = process.hrtime();
 			try {
-				params.media_ids = await Promise.all(media_tags.map((tag) => render_media_tag(tag, T, connectionPool, svgPuppet, result["user_id"])));
+				params.media_ids = await Promise.all(media_tags.map((tag) => render_media_tag(tag, T, connectionPool, svgPuppet, result["user_id"], result["screen_name"])));
 			}
 			catch (err) {
 				if (err instanceof MediaRenderError) {

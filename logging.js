@@ -76,20 +76,21 @@ function log_line_error(screen_name, userid, message, params) {
 }
 exports.log_line_error = log_line_error;
 /**
- * @param {{ query: (arg0: string, arg1: any[]) => PromiseLike<[any, any]> | [any, any]; }} connectionPool
- * @param {any} user_id
+ * @param {mysql.Pool} connectionPool
+ * @param {string} user_id
+ * @param {string} user_id
  * @param {string | number} error_code
  */
 
-async function set_last_error(connectionPool, user_id, error_code) {
+async function set_last_error(connectionPool, user_id, error_code, screen_name) {
 	try {
 		let [results, fields] = await connectionPool.query("UPDATE `traceries` SET `last_error_code` = ? WHERE `user_id` = ?",
 			[error_code, user_id]);
 
-		log_line(user_id, " set last_error_code to " + error_code);
+		log_line(screen_name, user_id, " set last_error_code to " + error_code);
 	}
 	catch (e) {
-		log_line_error(user_id, "failed to update db for last_error_code to " + error_code, e);
+		log_line_error(screen_name, user_id, "failed to update db for last_error_code to " + error_code, e);
 		return;
 	}
 }
