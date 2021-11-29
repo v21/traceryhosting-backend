@@ -361,8 +361,14 @@ async function tweet_for_account(connectionPool, svgPuppet, user_id) {
 
 
 
-	var processedGrammar = tracery.createGrammar(JSON.parse(tracery_result[0]['tracery']));
-	processedGrammar.addModifiers(tracery.baseEngModifiers);
+	try {
+		var processedGrammar = tracery.createGrammar(JSON.parse(tracery_result[0]['tracery']));
+		processedGrammar.addModifiers(tracery.baseEngModifiers);
+	}
+	catch (e) {
+		log_line_error(tracery_result[0]['screen_name'], user_id, "failed to process tracery ", e);
+		return;
+	}
 
 	const T = new TwitterApi({
 		appKey: process.env.TWITTER_CONSUMER_KEY,
@@ -540,7 +546,7 @@ async function run() {
 				tweetCount += 1;
 			}
 			catch (e) {
-				log_line_single_error("failed to tweet for " + result['user_id'] + " : " + e.message);
+				log_line_error(result['screen_name'], result['user_id'], "failed to tweet : " + e.message);
 			}
 		}
 
@@ -561,7 +567,7 @@ async function run() {
 				tweetCount += 1;
 			}
 			catch (e) {
-				log_line_single_error("failed to reply for " + result['user_id'] + " : " + e.message);
+				log_line_error(result['screen_name'], result['user_id'], "failed to reply : " + e.message);
 			}
 		}
 
