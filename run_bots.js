@@ -40,6 +40,7 @@ async function fetch_img(url, T, connectionPool, user_id, screen_name) {
 	if (response.ok) {
 		log_line(screen_name, user_id, "fetched " + url);
 		let buffer = await response.buffer();
+		log_line(screen_name, user_id, "got buffer " + url);
 		let media_id = await uploadMedia(buffer, T, connectionPool, user_id, screen_name);
 		return media_id;
 	}
@@ -60,6 +61,8 @@ async function uploadMedia(buffer, T, connectionPool, user_id, screen_name) {
 	let file_type = null;
 	try {
 		file_type = await FileType.fromBuffer(buffer);
+
+		log_line(screen_name, user_id, "detected filetype " + file_type);
 	}
 	catch (e) {
 		log_line_error(screen_name, user_id, "Can't upload media, mime type detection failed", e);
