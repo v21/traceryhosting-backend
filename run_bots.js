@@ -590,7 +590,12 @@ async function run() {
 
 
 process.on('exit', (code) => {
-	log_line_single_error(`Exiting with code: ${code}`);
+	if (code == 0) {
+		log_line_single(`Exiting with code: ${code}`);
+	}
+	else {
+		log_line_single_error(`Exiting with code: ${code}`);
+	}
 });
 
 
