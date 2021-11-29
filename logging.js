@@ -78,8 +78,8 @@ exports.log_line_error = log_line_error;
 /**
  * @param {mysql.Pool} connectionPool
  * @param {string} user_id
- * @param {string} user_id
  * @param {string | number} error_code
+ * @param {string} screen_name
  */
 
 async function set_last_error(connectionPool, user_id, error_code, screen_name) {

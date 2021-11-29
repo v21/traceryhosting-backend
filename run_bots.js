@@ -82,7 +82,7 @@ async function uploadMedia(buffer, T, connectionPool, user_id, screen_name) {
 		}
 		else if (e instanceof ApiResponseError) {
 			if (e.errors && "code" in e.errors[0]) {
-				await set_last_error(connectionPool, user_id, e.errors[0].code);
+				await set_last_error(connectionPool, user_id, e.errors[0].code, screen_name);
 
 				if (e.hasErrorCode(EApiV1ErrorCode.YouAreSuspended)) {
 					log_line(screen_name, user_id, "Can't upload media, suspended (64)");
@@ -245,7 +245,7 @@ async function doTweet(connectionPool, svgPuppet, origin, tries_remaining, proce
 		else if (e instanceof ApiResponseError) {
 
 			if ('code' in e.errors[0]) {
-				await set_last_error(connectionPool, result["user_id"], e.errors[0].code);
+				await set_last_error(connectionPool, result["user_id"], e.errors[0].code, result["screen_name"]);
 
 				if (e.hasErrorCode(EApiV1ErrorCode.TweetTextTooLong)) {
 					await recurse_retry(connectionPool, svgPuppet, origin, tries_remaining - 1, processedGrammar, T, result, in_reply_to);
@@ -273,7 +273,7 @@ async function doTweet(connectionPool, svgPuppet, origin, tries_remaining, proce
 				}
 			}
 			else if (e.code !== 200) {
-				await set_last_error(connectionPool, result["user_id"], e.code);
+				await set_last_error(connectionPool, result["user_id"], e.code, result["screen_name"]);
 				log_line_error(result["screen_name"], result["user_id"], "failed to tweet, http status code " + e.code + ".", params);
 			}
 
@@ -447,7 +447,7 @@ async function reply_for_account(connectionPool, svgPuppet, user_id) {
 		else if (e instanceof ApiResponseError) {
 
 			if ('code' in e.errors[0]) {
-				await set_last_error(connectionPool, tracery_result[0]["user_id"], e.errors[0].code);
+				await set_last_error(connectionPool, tracery_result[0]["user_id"], e.errors[0].code, tracery_result[0]["screen_name"]);
 				log_line_error(tracery_result[0]["screen_name"], tracery_result[0]["user_id"], "Can't fetch replies, API response error. HTTP code:" + e.code + ", Twitter error code:" + e.errors[0].code);
 			}
 			else {
