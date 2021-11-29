@@ -582,6 +582,21 @@ async function run() {
 	log_line_single("finished run in " + process.uptime() + " attempted tweet count:" + tweetCount);
 }
 
+
+process.on('exit', (code) => {
+	log_line_single_error(`Exiting with code: ${code}`);
+});
+
+
+process.on('uncaughtExceptionMonitor', (err, origin) => {
+	log_line_single_error(`Uncaught exception : ${err}, ${origin}`);
+});
+
+
+process.on('unhandledRejection', (reason, promise) => {
+	log_line_single_error(`Unhandled Rejection at:${promise}, reason: ${reason}`);
+});
+
 run();
 
 
