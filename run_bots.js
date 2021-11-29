@@ -518,6 +518,8 @@ async function run() {
 
 	let svgPuppet = undefined;
 
+	let tweetCount = 0;
+
 	if (!replies && !isNaN(frequency)) {
 		var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `frequency` = ? AND IFNULL(`blocked_status`, 0) = 0  AND (`last_error_code` IS NULL OR `last_error_code` NOT IN (64, 89, 326))', [frequency]);
 
@@ -531,6 +533,7 @@ async function run() {
 		for (const result of results) {
 			try {
 				await tweet_for_account(connectionPool, svgPuppet, result['user_id']);
+				tweetCount += 1;
 			}
 			catch (e) {
 				log_line_single_error("failed to tweet for " + result['user_id'] + " : " + e.message);
@@ -551,6 +554,7 @@ async function run() {
 		for (const result of results) {
 			try {
 				await reply_for_account(connectionPool, svgPuppet, result['user_id']);
+				tweetCount += 1;
 			}
 			catch (e) {
 				log_line_single_error("failed to reply for " + result['user_id'] + " : " + e.message);
@@ -571,7 +575,7 @@ async function run() {
 	// }
 
 	await connectionPool.end();
-	log_line_single("finished run in " + process.uptime());
+	log_line_single("finished run in " + process.uptime() + " attempted tweet count:" + tweetCount);
 }
 
 run();
