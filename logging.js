@@ -46,7 +46,7 @@ function log_line_single_error(message) {
 		new Date().toISOString(),
 		pid,
 		"arg:" + process.argv[2],
-		"ERROR",
+		"PROCESS_ERROR",
 		message
 	);
 }
