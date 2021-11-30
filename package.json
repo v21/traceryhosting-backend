@@ -9,6 +9,7 @@
   "author": "v21",
   "license": "ISC",
   "dependencies": {
+    "abort-controller": "^3.0.0",
     "bufferutil": "^4.0.4",
     "file-type": "^16.5.3",
     "git-rev-sync": "^3.0.1",
