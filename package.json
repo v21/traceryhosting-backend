@@ -19,7 +19,7 @@
     "node-fetch": "^2.6.5",
     "pn": "^1.1.0",
     "raven": "^2.6.4",
-    "render-svgs-with-puppeteer": "v21/render-svgs-with-puppeteer",
+    "render-svgs-with-puppeteer": "github:v21/render-svgs-with-puppeteer",
     "tracery-grammar": "^2.7.4",
     "twit": "^2.2.11",
     "twitter-api-v2": "^1.6.0",
