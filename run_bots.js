@@ -6,6 +6,7 @@ const mysql = require('mysql2/promise');
 
 const { convert, createPuppet, destroyPuppet } = require('render-svgs-with-puppeteer');
 const fetch = require('node-fetch');
+const { AbortController } = require('abort-controller');
 const FileType = require('file-type');
 
 const _ = require('lodash');
@@ -36,17 +37,33 @@ async function generate_svg(svg_text, T, connectionPool, svgPuppet, user_id, scr
  * @param {string} screen_name
  */
 async function fetch_img(url, T, connectionPool, user_id, screen_name) {
-	let response = await fetch(url);
-	if (response.ok) {
-		log_line(screen_name, user_id, "fetched " + url);
-		let buffer = await response.buffer();
-		log_line(screen_name, user_id, "got buffer " + url);
-		let media_id = await uploadMedia(buffer, T, connectionPool, user_id, screen_name);
-		return media_id;
+
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 30 * 1000);
+
+	try {
+		let response = await fetch(url, { signal: controller.signal });
+		if (response.ok) {
+			log_line(screen_name, user_id, "fetched " + url);
+			let buffer = await response.buffer();
+			log_line(screen_name, user_id, "got buffer " + url);
+			let media_id = await uploadMedia(buffer, T, connectionPool, user_id, screen_name);
+			return media_id;
+		}
+		else {
+			throw (new MediaRenderError("couldn't fetch " + url + ", returned " + response.status));
+		}
+	} catch (err) {
+		if (err.name === "AbortError") {
+			throw (new MediaRenderError("request timed out fetching " + url));
+		}
+		else {
+			throw (err);
+		}
+	} finally {
+		clearTimeout(timeout);
 	}
-	else {
-		throw (new MediaRenderError("couldn't fetch " + url + ", returned " + response.status));
-	}
+
 }
 
 
