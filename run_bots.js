@@ -39,7 +39,7 @@ async function generate_svg(svg_text, T, connectionPool, svgPuppet, user_id, scr
 async function fetch_img(url, T, connectionPool, user_id, screen_name) {
 
 	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), 30 * 1000);
+	const timeout = setTimeout(() => controller.abort(), 5 * 1000);
 
 	try {
 		let response = await fetch(url, { signal: controller.signal });
