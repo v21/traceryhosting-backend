@@ -1,4 +1,4 @@
-// @ts-check
+//// @ts-check
 
 const tracery = require('tracery-grammar');
 const { TwitterApi, ApiRequestError, ApiResponseError, EApiV1ErrorCode } = require('twitter-api-v2');
@@ -8,6 +8,7 @@ const { convert, createPuppet, destroyPuppet } = require('render-svgs-with-puppe
 const fetch = require('node-fetch');
 const { AbortController } = require('abort-controller');
 const FileType = require('file-type');
+const promiseLimit = require('promise-limit');
 
 const _ = require('lodash');
 
@@ -553,6 +554,9 @@ async function run() {
 
 	let tweetCount = 0;
 
+	//process 10 accounts at a time
+	const limit = promiseLimit(10);
+
 	if (!replies && !isNaN(frequency)) {
 		var [results, fields] = await connectionPool.query('SELECT user_id FROM `traceries` WHERE `frequency` = ? AND IFNULL(`blocked_status`, 0) = 0  AND (`last_error_code` IS NULL OR `last_error_code` NOT IN (64, 89, 326))', [frequency]);
 
@@ -562,16 +566,19 @@ async function run() {
 			throw (new Error("Database connection error"));
 		}
 
+		// process each result, using limit to only process 10 at a time
 		// @ts-ignore
-		for (const result of results) {
-			try {
-				await tweet_for_account(connectionPool, svgPuppet, result['user_id']);
-				tweetCount += 1;
-			}
-			catch (e) {
-				log_line_error(result['screen_name'], result['user_id'], "failed to tweet : " + e.message);
-			}
-		}
+		await Promise.all(results.map(async (result) => {
+			return limit(async () => {
+				try {
+					await tweet_for_account(connectionPool, svgPuppet, result['user_id']);
+					tweetCount += 1;
+				}
+				catch (e) {
+					log_line_error(result['screen_name'], result['user_id'], "failed to tweet : " + e.message);
+				}
+			});
+		}));
 
 	}
 	else if (replies) {
@@ -583,16 +590,17 @@ async function run() {
 			log_line_single_error("failed to query db for replies");
 		}
 
-
-		for (const result of results) {
-			try {
-				await reply_for_account(connectionPool, svgPuppet, result['user_id']);
-				tweetCount += 1;
-			}
-			catch (e) {
-				log_line_error(result['screen_name'], result['user_id'], "failed to reply : " + e.message);
-			}
-		}
+		await Promise.all(results.map(async (result) => {
+			return limit(async () => {
+				try {
+					await reply_for_account(connectionPool, svgPuppet, result['user_id']);
+					tweetCount += 1;
+				}
+				catch (e) {
+					log_line_error(result['screen_name'], result['user_id'], "failed to reply : " + e.message);
+				}
+			});
+		}));
 
 
 	}

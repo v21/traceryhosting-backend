@@ -19,6 +19,7 @@
     "mysql2": "^2.3.0",
     "node-fetch": "^2.6.5",
     "pn": "^1.1.0",
+    "promise-limit": "^2.7.0",
     "raven": "^2.6.4",
     "render-svgs-with-puppeteer": "github:v21/render-svgs-with-puppeteer",
     "tracery-grammar": "^2.7.4",
