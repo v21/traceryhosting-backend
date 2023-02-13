@@ -17,7 +17,7 @@
     "lodash": "^4.17.21",
     "mysql": "^2.18.1",
     "mysql2": "^2.3.0",
-    "node-fetch": "^2.6.5",
+    "node-fetch": "^2.6.7",
     "pn": "^1.1.0",
     "promise-limit": "^2.7.0",
     "raven": "^2.6.4",
